@@ -1633,6 +1633,8 @@ components:
       required: [name, enabled, node_ids]
       properties:
         name: {type: string}
+        group_type: {type: string, enum: [ingress, egress, legacy], description: 'Ingress or egress; legacy supports both for compatibility. Omitted on update preserves the current type; older clients creating a group without it get legacy.'}
+        connection_address: {type: string, description: 'Ingress connection hostname or IP without a port or protocol; required for ingress groups. Omitted on update preserves the current value.'}
         description: {type: string}
         enabled: {type: boolean}
         sort_order: {type: integer}

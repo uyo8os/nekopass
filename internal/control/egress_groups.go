@@ -17,6 +17,8 @@ type nodeGroupMember struct {
 }
 type nodeGroupInput struct {
 	Name                  string            `json:"name"`
+	GroupType             string            `json:"group_type"`
+	ConnectionAddress     *string           `json:"connection_address"`
 	Description           string            `json:"description"`
 	Enabled               bool              `json:"enabled"`
 	SortOrder             int               `json:"sort_order"`
@@ -55,13 +57,13 @@ func (v *nodeGroupInput) normalize() error {
 // Only expose groups explicitly assigned to the account, without credentials.
 func (s *Server) ruleEgressGroups(w http.ResponseWriter, r *http.Request) {
 	u := ruleActor(r)
-	rows, err := s.Pool.Query(r.Context(), `SELECT g.id,g.name,g.strategy,COALESCE((SELECT array_agg(m.node_id ORDER BY m.node_id) FROM node_group_members m JOIN user_nodes un ON un.node_id=m.node_id AND un.user_id=$1 JOIN nodes n ON n.id=m.node_id AND n.tunnel_exit_enabled WHERE m.group_id=g.id AND m.role<>'disabled'),'{}') AS node_ids FROM node_groups g JOIN user_node_groups ug ON ug.group_id=g.id AND ug.user_id=$1 WHERE g.enabled ORDER BY g.sort_order,g.id`, u.ID)
+	rows, err := s.Pool.Query(r.Context(), `SELECT g.id,g.name,g.strategy,COALESCE((SELECT array_agg(m.node_id ORDER BY m.node_id) FROM node_group_members m JOIN user_nodes un ON un.node_id=m.node_id AND un.user_id=$1 JOIN nodes n ON n.id=m.node_id AND n.tunnel_exit_enabled WHERE m.group_id=g.id AND m.role<>'disabled'),'{}') AS node_ids FROM node_groups g JOIN user_node_groups ug ON ug.group_id=g.id AND ug.user_id=$1 WHERE g.enabled AND g.group_type IN ('legacy','egress') ORDER BY g.sort_order,g.id`, u.ID)
 	s.sendRows(w, rows, err)
 }
 
 func (s *Server) ruleIngressGroups(w http.ResponseWriter, r *http.Request) {
 	u := ruleActor(r)
-	rows, err := s.Pool.Query(r.Context(), `SELECT g.id,g.name,COALESCE((SELECT array_agg(n.id ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'{}') AS node_ids,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',n.id,'name',n.name,'enabled',n.enabled,'port_min',n.port_min,'port_max',n.port_max,'allow_direct',n.allow_direct,'deny_udp_ingress_creation',n.deny_udp_ingress_creation,'ingress_multiplier',to_char(n.ingress_rate::numeric/10000,'FM9990.0000')) ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'[]') AS members FROM node_groups g JOIN user_node_groups ug ON ug.group_id=g.id AND ug.user_id=$1 WHERE g.enabled ORDER BY g.sort_order,g.id`, u.ID)
+	rows, err := s.Pool.Query(r.Context(), `SELECT g.id,g.name,g.connection_address,COALESCE((SELECT array_agg(n.id ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'{}') AS node_ids,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',n.id,'name',n.name,'enabled',n.enabled,'port_min',n.port_min,'port_max',n.port_max,'allow_direct',n.allow_direct,'deny_udp_ingress_creation',n.deny_udp_ingress_creation,'ingress_multiplier',to_char(n.ingress_rate::numeric/10000,'FM9990.0000')) ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'[]') AS members FROM node_groups g JOIN user_node_groups ug ON ug.group_id=g.id AND ug.user_id=$1 WHERE g.enabled AND g.group_type IN ('legacy','ingress') ORDER BY g.sort_order,g.id`, u.ID)
 	s.sendRows(w, rows, err)
 }
 

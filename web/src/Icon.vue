@@ -4,7 +4,7 @@ const paths: Record<string, string> = {
  shop:'M4 7h16v14H4zM8 8V6a4 4 0 0 1 8 0v2', wallet:'M3 6h17v15H3zM3 6V3h14v3M15 11h7v5h-7z', orders:'M5 2h14v20l-3-2-4 2-4-2-3 2zM8 7h8M8 12h8M8 16h5',
  settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2',
  home: 'm3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9', user: 'M8 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0M4 22v-3a8 8 0 0 1 16 0v3',
- rules: 'M8 6h13M8 12h13M8 18h13M3 6h.1M3 12h.1M3 18h.1', node: 'M3 4h18v13H3zM8 21h8M12 17v4',
+ rules: 'M8 6h13M8 12h13M8 18h13M3 6h.1M3 12h.1M3 18h.1', node: 'M3 4h18v13H3zM8 21h8M12 17v4', nodegroup: 'M12 3a2 2 0 1 0 0 4 2 2 0 1 0 0-4M4 17a2 2 0 1 0 0 4 2 2 0 1 0 0-4M20 17a2 2 0 1 0 0 4 2 2 0 1 0 0-4M12 7v4M4 17v-3a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3',
  search: 'M10 3a7 7 0 1 0 0 14 7 7 0 1 0 0-14m5 12 6 6', refresh: 'M20 7a9 9 0 0 0-15-1L2 9m0-6v6h6M4 17a9 9 0 0 0 15 1l3-3m0 6v-6h-6',
  stats: 'M3 3v18h18M7 16v-5m5 5V6m5 10V9', add: 'M5 2h10l4 4v16H5zM14 2v5h5M8 14h8m-4-4v8',
  upload: 'M5 2h10l4 4v16H5zM9 13l3-3 3 3m-3-3v8', download: 'M5 2h10l4 4v16H5zM9 15l3 3 3-3m-3 3v-8',

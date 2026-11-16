@@ -18,6 +18,7 @@ const nodes=[
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1100}});page.setDefaultTimeout(15000);
   const errors=[];page.on('pageerror',e=>errors.push(e.message));let saved,changed;
+  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.__copied=text}},configurable:true}));
   await page.route('**/api/v1/**',async route=>{
    const req=route.request(),api=new URL(req.url()).pathname.slice('/api/v1/'.length);
    if(req.method()==='POST'&&api==='rules'){saved=req.postDataJSON();return route.fulfill({json:{id:1}})}
@@ -28,7 +29,8 @@ const nodes=[
    else if(api==='profile')data=[{id:2,node_ids:[10],quota_bytes:-1,max_rules:0,traffic_bytes:0,rule_count:0,plan_id:1,plan_enabled:true}];
    else if(api==='rule-nodes')data=nodes.filter(n=>n.id===10);
    else if(api==='rule-ingress-groups')data=[{id:4,name:'多入口',node_ids:[10,11],members:nodes.map(n=>({...n,enabled:n.id===10,allow_direct:n.id===10,deny_udp_ingress_creation:n.id===11}))}];
-   else if(api==='rules'&&saved)data=[{...saved,id:1,node_name:'入口一',ingress_group_name:'多入口',ingress_nodes:nodes.map(n=>({id:n.id,name:n.name,public_address:n.public_address,enabled:true,online:true,applied_revision:1,config_revision:1,sync_error:''})),egress_node_name:'',public_address:'one.example.test',username:'fixture',traffic_bytes:0,status:'active',sync_error:'',group_name:''}];
+   else if(api==='rules'&&saved)data=[{...saved,id:1,node_name:'入口一',ingress_group_name:'多入口',ingress_connection_address:'entry.example.test',ingress_nodes:nodes.map(n=>({id:n.id,name:n.name,public_address:n.public_address,enabled:true,online:true,applied_revision:1,config_revision:1,sync_error:''})),egress_node_name:'',public_address:'one.example.test',username:'fixture',traffic_bytes:0,status:'active',sync_error:'',group_name:''}];
+   if(api==='rules'&&saved)data.push({...data[0],id:2,name:'旧入口组',ingress_connection_address:''});
    return route.fulfill({json:data});
   });
   const field=(dlg,label)=>dlg.getByText(label,{exact:true}).locator('..');
@@ -44,7 +46,12 @@ const nodes=[
   await dlg.getByRole('button',{name:'确定',exact:true}).click();await dlg.waitFor({state:'hidden'});
   assert.equal(saved.ingress_group_id,4);assert.equal(saved.listen_port,8080);assert.equal(saved.node_id,10);
   const row=page.locator('.rules-table .el-table__body-wrapper tbody tr').filter({hasText:'组入口规则'});
-  await row.waitFor();assert.match(await row.innerText(),/one\.example\.test:8080/);assert.match(await row.innerText(),/two\.example\.test:8080/);assert.match(await row.innerText(),/已同步/);
+  await row.waitFor();assert.match(await row.innerText(),/entry\.example\.test:8080/);assert.doesNotMatch(await row.innerText(),/one\.example\.test:8080|two\.example\.test:8080|使用域名或外部负载均衡器分流/);
+  await row.getByRole('button',{name:'entry.example.test:8080'}).click();assert.equal(await page.evaluate(()=>window.__copied),'entry.example.test:8080');
+  const members=row.getByRole('button',{name:'查看入口节点'});await members.hover();
+  const popover=page.locator('.el-popover:visible').filter({hasText:'入口节点'});await popover.waitFor();assert.match(await popover.innerText(),/one\.example\.test:8080/);assert.match(await popover.innerText(),/two\.example\.test:8080/);assert.match(await popover.innerText(),/已同步/);
+  await page.mouse.move(0,0);await popover.waitFor({state:'hidden'});await members.focus();await popover.waitFor();assert.match(await popover.innerText(),/入口一/);await members.blur();await popover.waitFor({state:'hidden'});await members.click();await popover.waitFor();await page.mouse.click(0,0);
+  const legacy=page.locator('.rules-table .el-table__body-wrapper tbody tr').filter({hasText:'旧入口组'});await legacy.waitFor();assert.match(await legacy.innerText(),/未配置入口组连接地址/);assert.equal(await legacy.getByRole('button',{name:'旧入口组'}).count(),0);
   await page.locator('.rule-dock').getByRole('button',{name:'导出',exact:true}).click();
   const exportDialog=page.getByRole('dialog',{name:'批量导出规则'});await exportDialog.waitFor();
   assert.equal(await exportDialog.getByRole('radio',{name:'Nekopass 完整备份'}).isChecked(),true);

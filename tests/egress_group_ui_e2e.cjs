@@ -71,7 +71,43 @@ const group={id:20,name:'多出口节点组',description:'',enabled:true,sort_or
   await field(dlg,'节点组名称').locator('input').click();await page.waitForTimeout(250);
   if(process.env.NEKOPASS_UI_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.NEKOPASS_UI_SCREENSHOT_DIR,'group-member-settings.png')});
   await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();await dlg.waitFor({state:'hidden'});
-  const saved=writes.at(-1);assert.equal(saved.api,'admin/node-groups/20');assert.equal(saved.body.strategy,'round_robin');assert.equal(saved.body.health_failures,4);assert.deepEqual(saved.body.members.find(m=>m.node_id===30),{node_id:30,role:'active',weight:3});
-  assert.deepEqual(errors,[]);console.log('PASS unified exits, green/blue icons, colliding IDs, single/group create, group strategy, role, weight and health settings');
+  const saved=writes.at(-1);assert.equal(saved.api,'admin/node-groups/20');assert.equal(saved.body.group_type,'legacy');assert.equal(saved.body.connection_address,'');assert.equal(saved.body.strategy,'round_robin');assert.equal(saved.body.health_failures,4);assert.deepEqual(saved.body.members.find(m=>m.node_id===30),{node_id:30,role:'active',weight:3});
+  // New groups require a type, and ingress groups expose an address instead of exit settings.
+  await page.getByRole('button',{name:'创建节点组',exact:true}).click();
+  dlg=page.getByRole('dialog',{name:'创建节点组',exact:true});
+  const writesBeforeType=writes.length;
+  await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();
+  assert.equal(writes.length,writesBeforeType);
+  await dlg.getByText('入口',{exact:true}).click();
+  assert.equal(await field(dlg,'连接地址').count(),1);
+  assert.equal(await dlg.getByText('出口负载策略',{exact:true}).count(),0);
+  assert.equal(await dlg.getByText('连续失败次数',{exact:true}).count(),0);
+  await field(dlg,'节点组名称').locator('input').fill('新入口组');
+  await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();
+  assert.equal(writes.length,writesBeforeType);
+  await field(dlg,'连接地址').locator('input').fill('ingress.example.test');
+  await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();await dlg.waitFor({state:'hidden'});
+  assert.equal(writes.at(-1).body.group_type,'ingress');assert.equal(writes.at(-1).body.connection_address,'ingress.example.test');
+  await page.getByRole('button',{name:'创建节点组',exact:true}).click();
+  dlg=page.getByRole('dialog',{name:'创建节点组',exact:true});
+  await dlg.getByText('出口',{exact:true}).click();
+  assert.equal(await dlg.getByText('连接地址',{exact:true}).count(),0);
+  assert.equal(await dlg.getByText('出口负载策略',{exact:true}).count(),1);
+  assert.equal(await dlg.getByText('连续失败次数',{exact:true}).count(),1);
+  await field(dlg,'节点组名称').locator('input').fill('新出口组');
+  await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();await dlg.waitFor({state:'hidden'});
+  assert.equal(writes.at(-1).body.group_type,'egress');
+  // Legacy groups remain dual-purpose until an explicit conversion is saved.
+  await page.getByRole('row').filter({hasText:'多出口节点组'}).getByRole('button',{name:'编辑',exact:true}).click();
+  dlg=page.getByRole('dialog',{name:'编辑节点组',exact:true});
+  assert.equal(await dlg.getByText('入口与出口（旧）',{exact:true}).count(),1);
+  assert.equal(await dlg.getByText('出口负载策略',{exact:true}).count(),1);
+  assert.equal(await dlg.getByText('连接地址',{exact:true}).count(),1);
+  await dlg.getByText('入口',{exact:true}).click();
+  assert.equal(await dlg.getByText('出口负载策略',{exact:true}).count(),0);
+  await field(dlg,'连接地址').locator('input').fill('legacy.example.test');
+  await dlg.getByRole('button',{name:'保存节点组',exact:true}).click();await dlg.waitFor({state:'hidden'});
+  assert.equal(writes.at(-1).body.group_type,'ingress');assert.equal(writes.at(-1).body.connection_address,'legacy.example.test');
+  assert.deepEqual(errors,[]);console.log('PASS exit options and settings; ingress/egress group creation, address validation, legacy compatibility and conversion');
  } finally {await browser.close();await new Promise(resolve=>server.close(resolve))}
 })().catch(err=>{console.error(err);server.close();process.exitCode=1});

@@ -94,4 +94,13 @@ INSERT INTO rules(id,user_id,node_id,listen_port,target_host,target_port) VALUES
 			t.Fatalf("%s did not advance the rule revision: %v", sql, err)
 		}
 	}
+	// Upgrade a live v43 group and ensure existing group rules and reservations
+	// continue to work without requiring administrators to classify the group.
+	exec(migration044)
+	if err := tx.QueryRow(ctx, `SELECT (SELECT max(version)=44 FROM schema_version)
+ AND (SELECT group_type='legacy' AND connection_address='' FROM node_groups WHERE id=1)
+ AND (SELECT ingress_group_id=1 FROM rules WHERE id=1)
+ AND (SELECT count(*)=2 FROM rule_ports WHERE rule_id=1)`).Scan(&ok); err != nil || !ok {
+		t.Fatal("v44 did not preserve existing group and rule", err)
+	}
 }

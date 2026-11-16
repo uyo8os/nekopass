@@ -538,7 +538,7 @@ func (s *Server) nodeGroups(w http.ResponseWriter, r *http.Request) {
 	if !admin(w, r) {
 		return
 	}
-	rows, e := s.Pool.Query(r.Context(), `SELECT g.id,g.name,g.description,g.enabled,g.sort_order,g.strategy,g.health_interval_seconds,g.health_failures,g.health_successes,COALESCE((SELECT jsonb_agg(jsonb_build_object('node_id',node_id,'role',role,'weight',weight) ORDER BY node_id) FROM node_group_members WHERE group_id=g.id),'[]') AS members,COALESCE((SELECT array_agg(node_id ORDER BY node_id) FROM node_group_members WHERE group_id=g.id),'{}') AS node_ids,(SELECT count(*) FROM plan_node_groups WHERE group_id=g.id) AS plan_count FROM node_groups g ORDER BY g.sort_order,g.id`)
+	rows, e := s.Pool.Query(r.Context(), `SELECT g.id,g.name,g.description,g.group_type,g.connection_address,g.enabled,g.sort_order,g.strategy,g.health_interval_seconds,g.health_failures,g.health_successes,COALESCE((SELECT jsonb_agg(jsonb_build_object('node_id',node_id,'role',role,'weight',weight) ORDER BY node_id) FROM node_group_members WHERE group_id=g.id),'[]') AS members,COALESCE((SELECT array_agg(node_id ORDER BY node_id) FROM node_group_members WHERE group_id=g.id),'{}') AS node_ids,(SELECT count(*) FROM plan_node_groups WHERE group_id=g.id) AS plan_count FROM node_groups g ORDER BY g.sort_order,g.id`)
 	s.sendRows(w, rows, e)
 }
 func (s *Server) saveNodeGroup(w http.ResponseWriter, r *http.Request) {
@@ -569,6 +569,43 @@ func (s *Server) saveNodeGroup(w http.ResponseWriter, r *http.Request) {
 	if !validID {
 		return
 	}
+	var oldType, oldAddress string
+	if id != 0 {
+		e = tx.QueryRow(ctx, "SELECT group_type,connection_address FROM node_groups WHERE id=$1 FOR UPDATE", id).Scan(&oldType, &oldAddress)
+		if errors.Is(e, pgx.ErrNoRows) {
+			fail(w, 404, "节点组不存在")
+			return
+		}
+		if e != nil {
+			s.dbError(w, e)
+			return
+		}
+	} else {
+		oldType = "legacy"
+	}
+	if v.GroupType == "" {
+		v.GroupType = oldType
+	}
+	address := oldAddress
+	if v.ConnectionAddress != nil {
+		address = strings.TrimSpace(*v.ConnectionAddress)
+	}
+	if (v.GroupType != "legacy" && v.GroupType != "ingress" && v.GroupType != "egress") || (v.GroupType == "ingress" && address == "") || (address != "" && !ValidTarget(address)) {
+		fail(w, 400, "节点组类型或连接地址无效：入口组须填写不含端口或协议的域名或 IP")
+		return
+	}
+	if id != 0 && v.GroupType != oldType {
+		var inUse bool
+		e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rules WHERE ($2='egress' AND ingress_group_id=$1) OR ($2='ingress' AND egress_group_id=$1))`, id, v.GroupType).Scan(&inUse)
+		if e != nil {
+			s.dbError(w, e)
+			return
+		}
+		if inUse {
+			fail(w, 409, "节点组仍被不兼容的规则使用，无法修改类型")
+			return
+		}
+	}
 	if id == 0 {
 		e = tx.QueryRow(ctx, "INSERT INTO node_groups(name) VALUES($1) RETURNING id", v.Name).Scan(&id)
 		if e != nil {
@@ -581,7 +618,7 @@ func (s *Server) saveNodeGroup(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, e)
 		return
 	}
-	tag, e := tx.Exec(ctx, "UPDATE node_groups SET name=$2,description=$3,enabled=$4,sort_order=$5,strategy=$6,health_interval_seconds=$7,health_failures=$8,health_successes=$9 WHERE id=$1", id, v.Name, v.Description, v.Enabled, v.SortOrder, v.Strategy, v.HealthIntervalSeconds, v.HealthFailures, v.HealthSuccesses)
+	tag, e := tx.Exec(ctx, "UPDATE node_groups SET name=$2,description=$3,enabled=$4,sort_order=$5,strategy=$6,health_interval_seconds=$7,health_failures=$8,health_successes=$9,group_type=$10,connection_address=$11 WHERE id=$1", id, v.Name, v.Description, v.Enabled, v.SortOrder, v.Strategy, v.HealthIntervalSeconds, v.HealthFailures, v.HealthSuccesses, v.GroupType, address)
 	if e != nil {
 		s.dbError(w, e)
 		return
