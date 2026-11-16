@@ -137,7 +137,7 @@ func TestRuleListJITIsTransactionLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	for _, setting := range []string{"SET jit = on", "SET join_collapse_limit = 8"} {
+	for _, setting := range []string{"SET jit = on", "SET join_collapse_limit = 8", "SET plan_cache_mode = auto"} {
 		if _, err = pool.Exec(ctx, setting); err != nil {
 			t.Fatal(err)
 		}
@@ -150,12 +150,12 @@ func TestRuleListJITIsTransactionLocal(t *testing.T) {
 	checkRestored := func() {
 		t.Helper()
 		var actualPID int
-		var jit, collapse string
-		if err := pool.QueryRow(ctx, "SELECT pg_backend_pid(), current_setting('jit'), current_setting('join_collapse_limit')").Scan(&actualPID, &jit, &collapse); err != nil {
+		var jit, collapse, planMode string
+		if err := pool.QueryRow(ctx, "SELECT pg_backend_pid(), current_setting('jit'), current_setting('join_collapse_limit'), current_setting('plan_cache_mode')").Scan(&actualPID, &jit, &collapse, &planMode); err != nil {
 			t.Fatal(err)
 		}
-		if actualPID != pid || jit != "on" || collapse != "8" {
-			t.Fatalf("pooled session changed or settings leaked: pid=%d jit=%s join_collapse_limit=%s", actualPID, jit, collapse)
+		if actualPID != pid || jit != "on" || collapse != "8" || planMode != "auto" {
+			t.Fatalf("pooled session changed or settings leaked: pid=%d jit=%s join_collapse_limit=%s plan_cache_mode=%s", actualPID, jit, collapse, planMode)
 		}
 	}
 	for _, tc := range []string{"normal", "error", "canceled"} {
@@ -166,12 +166,19 @@ func TestRuleListJITIsTransactionLocal(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var jit, readOnly, collapse string
-			if err = tx.QueryRow(requestCtx, "SELECT current_setting('jit'), current_setting('transaction_read_only'), current_setting('join_collapse_limit')").Scan(&jit, &readOnly, &collapse); err != nil {
+			var jit, readOnly, collapse, planMode string
+			if err = tx.QueryRow(requestCtx, "SELECT current_setting('jit'), current_setting('transaction_read_only'), current_setting('join_collapse_limit'), current_setting('plan_cache_mode')").Scan(&jit, &readOnly, &collapse, &planMode); err != nil {
 				t.Fatal(err)
 			}
-			if jit != "off" || readOnly != "on" || collapse != "1" {
-				t.Fatalf("jit=%s read_only=%s join_collapse_limit=%s", jit, readOnly, collapse)
+			if jit != "off" || readOnly != "on" || collapse != "1" || planMode != "force_generic_plan" {
+				t.Fatalf("jit=%s read_only=%s join_collapse_limit=%s plan_cache_mode=%s", jit, readOnly, collapse, planMode)
+			}
+			var value, generic int64
+			if err = tx.QueryRow(requestCtx, "SELECT $1::bigint /* rule-list-generic-plan-test */", int64(7)).Scan(&value); err != nil || value != 7 {
+				t.Fatalf("parameterized query failed: value=%d err=%v", value, err)
+			}
+			if err = tx.QueryRow(requestCtx, "SELECT generic_plans FROM pg_prepared_statements WHERE statement=$1", "SELECT $1::bigint /* rule-list-generic-plan-test */").Scan(&generic); err != nil || generic == 0 {
+				t.Fatalf("generic plan was not used: count=%d err=%v", generic, err)
 			}
 			if tc == "error" {
 				if _, err = tx.Exec(requestCtx, "CREATE TEMP TABLE rule_list_write_forbidden (id int)"); err == nil {

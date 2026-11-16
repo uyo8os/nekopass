@@ -408,6 +408,13 @@ func (s *Server) beginRuleListTx(ctx context.Context) (pgx.Tx, error) {
 		rollbackRuleListTx(tx)
 		return nil, err
 	}
+	// Repeated custom plans for this deeply nested query can retain tens of
+	// MiB per pooled backend. Keep the cached generic plan within this
+	// transaction; other queries retain the database's configured behavior.
+	if _, err = tx.Exec(ctx, "SET LOCAL plan_cache_mode = force_generic_plan"); err != nil {
+		rollbackRuleListTx(tx)
+		return nil, err
+	}
 	return tx, nil
 }
 
