@@ -94,6 +94,19 @@ func (s *StreamServer) exchange(ctx context.Context, conn interface {
 }, nodeID int64, r *pb.AgentMessage) (*pb.ControlMessage, error) {
 	return s.exchangeWithCredential(ctx, conn, nodeID, r, "")
 }
+
+// Both rule listing and node exchanges contain complex parameterized queries.
+// Restrict planner search and JIT only in their own transactions: high planner
+// memory would otherwise remain in each long-lived PostgreSQL backend process.
+func configureControlPlanner(ctx context.Context, tx pgx.Tx) error {
+	for _, setting := range []string{"SET LOCAL jit = off", "SET LOCAL join_collapse_limit = 1"} {
+		if _, err := tx.Exec(ctx, setting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interface {
 	Begin(context.Context) (pgx.Tx, error)
 }, nodeID int64, r *pb.AgentMessage, expectedHash string) (*pb.ControlMessage, error) {
@@ -102,6 +115,9 @@ func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interfac
 		return nil, e
 	}
 	defer tx.Rollback(ctx)
+	if e = configureControlPlanner(ctx, tx); e != nil {
+		return nil, e
+	}
 	var instance, currentHash string
 	var previousProtocolVersion int32
 	e = tx.QueryRow(ctx, "SELECT instance_id,token_hash,protocol_version FROM nodes WHERE id=$1 FOR UPDATE", nodeID).Scan(&instance, &currentHash, &previousProtocolVersion)

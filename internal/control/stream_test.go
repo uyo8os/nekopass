@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pb "github.com/nekopass/nekopass/internal/protocol"
 	"github.com/nekopass/nekopass/internal/store"
@@ -126,5 +128,75 @@ func TestConcurrentGrantsAndReplay(t *testing.T) {
 	report.InstanceId = "different-instance-id"
 	if _, err = s.exchange(ctx, c, winner, report); err == nil {
 		t.Fatal("accepted replacement agent without state")
+	}
+}
+
+// Record settings actually applied inside the heartbeat transaction while
+// still executing against PostgreSQL, including the normal commit/error paths.
+type tracedExchangeConn struct {
+	pool     *pgxpool.Pool
+	settings []string
+}
+
+type tracedExchangeTx struct {
+	pgx.Tx
+	owner *tracedExchangeConn
+}
+
+func (c *tracedExchangeConn) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &tracedExchangeTx{Tx: tx, owner: c}, nil
+}
+
+func (tx *tracedExchangeTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.HasPrefix(sql, "SET LOCAL ") {
+		tx.owner.settings = append(tx.owner.settings, sql)
+	}
+	return tx.Tx.Exec(ctx, sql, args...)
+}
+
+func TestExchangePlannerSettingsAreTransactionLocal(t *testing.T) {
+	base := testDB(t)
+	ctx := context.Background()
+	config := base.Config().Copy()
+	config.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for _, setting := range []string{"SET jit = on", "SET join_collapse_limit = 8"} {
+		if _, err = pool.Exec(ctx, setting); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var node int64
+	token := Secret()
+	if err = base.QueryRow(ctx, "INSERT INTO nodes(name,token_hash) VALUES($1,$2) RETURNING id", Secret(), Hash(token)).Scan(&node); err != nil {
+		t.Fatal(err)
+	}
+	defer base.Exec(ctx, "DELETE FROM nodes WHERE id=$1", node)
+	s := &StreamServer{Server: New(pool)}
+	c := &tracedExchangeConn{pool: pool}
+	report := &pb.AgentMessage{InstanceId: Secret(), ProtocolVersion: 35}
+	for _, expectedHash := range []string{Hash(token), Hash(Secret())} {
+		c.settings = nil
+		_, err = s.exchangeWithCredential(ctx, c, node, report, expectedHash)
+		if (expectedHash == Hash(token)) != (err == nil) {
+			t.Fatalf("unexpected exchange result: %v", err)
+		}
+		if len(c.settings) != 2 || c.settings[0] != "SET LOCAL jit = off" || c.settings[1] != "SET LOCAL join_collapse_limit = 1" {
+			t.Fatalf("heartbeat did not configure local planner settings: %v", c.settings)
+		}
+		var jit, collapse string
+		if err = pool.QueryRow(ctx, "SELECT current_setting('jit'), current_setting('join_collapse_limit')").Scan(&jit, &collapse); err != nil {
+			t.Fatal(err)
+		}
+		if jit != "on" || collapse != "8" {
+			t.Fatalf("exchange leaked planner settings: %s %s", jit, collapse)
+		}
 	}
 }

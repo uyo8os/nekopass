@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestRuleWorkflowAndOwnership(t *testing.T) {
@@ -68,6 +70,16 @@ func TestRuleWorkflowAndOwnership(t *testing.T) {
 	var foreignGroup, foreignRule int64
 	p.QueryRow(ctx, "INSERT INTO rule_groups(user_id,name) VALUES($1,'private') RETURNING id", other).Scan(&foreignGroup)
 	p.QueryRow(ctx, "INSERT INTO rules(user_id,node_id,listen_port,target_host,target_port) VALUES($1,$2,19999,'127.0.0.1',80) RETURNING id", other, node).Scan(&foreignRule)
+	if w := req("rules", "GET", nil); w.Code != 200 {
+		t.Fatalf("list rules: %d %s", w.Code, w.Body.String())
+	} else {
+		var listed []struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil || len(listed) != 1 || listed[0].ID != id {
+			t.Fatalf("rule list exposed a foreign rule or omitted the owner's rule: %s (%v)", w.Body.String(), err)
+		}
+	}
 	if w := req("rules/batch", "POST", BatchInput{Action: "delete", IDs: []int64{id, foreignRule}}); w.Code != 403 {
 		t.Fatal("cross-user batch accepted", w.Code)
 	}
@@ -109,5 +121,68 @@ func TestRuleWorkflowAndOwnership(t *testing.T) {
 	}
 	if w := req("rules/batch", "POST", BatchInput{Action: "enable", IDs: []int64{id}}); w.Code != 200 {
 		t.Fatal(w.Body.String())
+	}
+}
+
+// The setting is scoped to this query's read-only transaction, even when the
+// transaction fails or the HTTP request is canceled. Reusing one connection
+// ensures this checks the actual pooled session, not another connection.
+func TestRuleListJITIsTransactionLocal(t *testing.T) {
+	base := testDB(t)
+	ctx := context.Background()
+	config := base.Config().Copy()
+	config.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for _, setting := range []string{"SET jit = on", "SET join_collapse_limit = 8"} {
+		if _, err = pool.Exec(ctx, setting); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var pid int
+	if err = pool.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Pool: pool}
+	checkRestored := func() {
+		t.Helper()
+		var actualPID int
+		var jit, collapse string
+		if err := pool.QueryRow(ctx, "SELECT pg_backend_pid(), current_setting('jit'), current_setting('join_collapse_limit')").Scan(&actualPID, &jit, &collapse); err != nil {
+			t.Fatal(err)
+		}
+		if actualPID != pid || jit != "on" || collapse != "8" {
+			t.Fatalf("pooled session changed or settings leaked: pid=%d jit=%s join_collapse_limit=%s", actualPID, jit, collapse)
+		}
+	}
+	for _, tc := range []string{"normal", "error", "canceled"} {
+		t.Run(tc, func(t *testing.T) {
+			requestCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			tx, err := s.beginRuleListTx(requestCtx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var jit, readOnly, collapse string
+			if err = tx.QueryRow(requestCtx, "SELECT current_setting('jit'), current_setting('transaction_read_only'), current_setting('join_collapse_limit')").Scan(&jit, &readOnly, &collapse); err != nil {
+				t.Fatal(err)
+			}
+			if jit != "off" || readOnly != "on" || collapse != "1" {
+				t.Fatalf("jit=%s read_only=%s join_collapse_limit=%s", jit, readOnly, collapse)
+			}
+			if tc == "error" {
+				if _, err = tx.Exec(requestCtx, "CREATE TEMP TABLE rule_list_write_forbidden (id int)"); err == nil {
+					t.Fatal("read-only transaction allowed a write")
+				}
+			}
+			if tc == "canceled" {
+				cancel()
+			}
+			rollbackRuleListTx(tx)
+			checkRestored()
+		})
 	}
 }
