@@ -1577,7 +1577,7 @@ components:
         egress_node_id: {type: integer, format: int64, minimum: 0, default: 0, description: '0 means direct; other IDs must be linked to the ingress and allowed by the user plan'}
         name: {type: string, maxLength: 128, description: Defaults to first target if blank}
         group_id: {type: integer, format: int64, description: 0 means ungrouped; must belong to owner}
-        listen_port: {type: integer, minimum: 0, maximum: 65535, description: '0 or omitted allocates randomly for ordinary rules. Shared TLS ignores this field and uses its listener port.'}
+        listen_port: {type: integer, minimum: 0, maximum: 65535, description: '0 or omitted allocates randomly for ordinary rules; explicit ordinary rule ports must be 80–65535. Shared TLS ignores this field and uses its listener port.'}
         targets: {type: array, minItems: 1, maxItems: 32, items: {type: string}, description: 'host:port or [IPv6]:port; required unless legacy target_host/target_port supplied'}
         balance: {type: string, enum: [random, round_robin, least_connections], default: random}
         speed_mbps: {type: integer, enum: [0], default: 0, deprecated: true, description: 'Must be 0; runtime uses the user personal per-rule speed limit. Plans provide initial values; administrators may change user resources.'}
@@ -1670,8 +1670,8 @@ components:
         tunnel_public_host: {type: string, description: Host reachable from linked ingress nodes; required when tunnel_exit_enabled}
         allowed_ingress_ids: {type: array, items: {type: integer, format: int64}, description: Ingress nodes allowed to use this exit}
         listen_host: {type: string, default: '0.0.0.0'}
-        port_min: {type: integer, minimum: 1024, maximum: 65535, default: 1024}
-        port_max: {type: integer, minimum: 1024, maximum: 65535, default: 65535}
+        port_min: {type: integer, minimum: 80, maximum: 65535, default: 1024}
+        port_max: {type: integer, minimum: 80, maximum: 65535, default: 65535}
         max_connections: {type: integer, minimum: 0, maximum: 1000000, default: 10000, description: 0 unlimited}
         dial_timeout_seconds: {type: integer, minimum: 1, maximum: 120, default: 8}
         idle_timeout_seconds: {type: integer, minimum: 10, maximum: 86400, default: 300}

@@ -121,8 +121,8 @@ func (in *RuleInput) normalize() error {
 	if len([]rune(in.Name)) > 128 {
 		return errors.New("名称不能超过 128 个字符")
 	}
-	if in.ListenPort != 0 && (in.ListenPort < 1024 || in.ListenPort > 65535) {
-		return errors.New("监听端口为 1024–65535，留空或 0 为随机分配")
+	if in.ListenPort != 0 && (in.ListenPort < 80 || in.ListenPort > 65535) {
+		return errors.New("监听端口为 80–65535，留空或 0 为随机分配")
 	}
 	if in.Balance == "" {
 		in.Balance = "random"
