@@ -56,6 +56,7 @@ type Server struct {
 	panelUpdateDir  string
 	settingsMu      sync.Mutex
 	agentListener   *agentListener
+	diagnostics     diagnosticRegistry
 }
 type loginBucket struct {
 	limiter *rate.Limiter
@@ -206,6 +207,7 @@ func (s *Server) Handler(static http.Handler) http.Handler {
 	api.HandleFunc("POST /api/v1/nodes", s.saveNode)
 	api.HandleFunc("GET /api/v1/rules", s.rules)
 	api.HandleFunc("POST /api/v1/rules", s.saveRule)
+	api.HandleFunc("POST /api/v1/rules/{id}/diagnose", s.diagnoseRule)
 	api.HandleFunc("PUT /api/v1/rules/{id}", s.saveRule)
 	api.HandleFunc("DELETE /api/v1/rules/{id}", s.deleteRule)
 	api.HandleFunc("GET /api/v1/rule-nodes", s.ruleNodes)
@@ -241,6 +243,7 @@ func (s *Server) Handler(static http.Handler) http.Handler {
 	api.HandleFunc("DELETE /api/v1/admin/node-groups/{id}", s.deleteNodeGroup)
 	api.HandleFunc("GET /api/v1/admin/users/{userID}/rules", s.managedUser(s.rules))
 	api.HandleFunc("POST /api/v1/admin/users/{userID}/rules", s.managedUser(s.saveRule))
+	api.HandleFunc("POST /api/v1/admin/users/{userID}/rules/{id}/diagnose", s.managedUser(s.diagnoseRule))
 	api.HandleFunc("PUT /api/v1/admin/users/{userID}/rules/{id}", s.managedUser(s.saveRule))
 	api.HandleFunc("DELETE /api/v1/admin/users/{userID}/rules/{id}", s.managedUser(s.deleteRule))
 	api.HandleFunc("POST /api/v1/admin/users/{userID}/rules/batch", s.managedUser(s.batchRules))

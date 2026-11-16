@@ -1,7 +1,10 @@
 package protocol
 
 // CurrentVersion is the configuration capability version advertised by the agent.
-const CurrentVersion int32 = 37
+const CurrentVersion int32 = 38
+
+// DiagnosticVersion supports bounded, rule-scoped network diagnostics.
+const DiagnosticVersion int32 = 38
 
 // MultiIngressVersion indexes exit authorization by both rule and ingress.
 const MultiIngressVersion int32 = 37

@@ -946,6 +946,37 @@ paths:
       responses:
         '200': {description: Deleted}
         '404': {$ref: '#/components/responses/Error'}
+  /rules/{id}/diagnose:
+    parameters:
+      - {$ref: '#/components/parameters/ID'}
+    post:
+      summary: Diagnose the saved rule owned by the current account
+      description: Nodes test only destinations present in their applied rule configuration. Returns independently tested segments; UDP target reachability is unknown without a response. Diagnostics require agent protocol 38 and are rate-limited.
+      responses:
+        '200':
+          description: Topology and diagnostic results
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RuleDiagnosis'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /admin/users/{userID}/rules/{id}/diagnose:
+    parameters:
+      - {name: userID, in: path, required: true, schema: {type: integer, format: int64, minimum: 1}}
+      - {$ref: '#/components/parameters/ID'}
+    post:
+      summary: Diagnose a saved rule belonging to the specified managed user
+      responses:
+        '200':
+          description: Topology and diagnostic results
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RuleDiagnosis'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /announcement:
     get:
       summary: Read site announcement as plain text
@@ -1430,6 +1461,34 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/RuleInput'}
   schemas:
+    RuleDiagnosis:
+      type: object
+      required: [rule_id, protocol, mode, nodes, links]
+      properties:
+        rule_id: {type: integer, format: int64}
+        protocol: {type: string, enum: [tcp, udp]}
+        mode: {type: string, enum: [direct, relay]}
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [id, kind, name, address]
+            properties:
+              id: {type: string}
+              kind: {type: string, enum: [ingress, egress, target]}
+              name: {type: string}
+              address: {type: string}
+        links:
+          type: array
+          items:
+            type: object
+            required: [source, target, status]
+            properties:
+              source: {type: string}
+              target: {type: string}
+              status: {type: string, enum: [reachable, unreachable, unknown, not_checked]}
+              latency_ms: {type: integer, format: int64, minimum: 0}
+              reason: {type: string}
     IPRecoveryConfig:
       type: object
       additionalProperties: false

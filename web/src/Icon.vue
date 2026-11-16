@@ -6,7 +6,7 @@ const paths: Record<string, string> = {
  home: 'm3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9', user: 'M8 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0M4 22v-3a8 8 0 0 1 16 0v3',
  rules: 'M8 6h13M8 12h13M8 18h13M3 6h.1M3 12h.1M3 18h.1', node: 'M3 4h18v13H3zM8 21h8M12 17v4', nodegroup: 'M12 3a2 2 0 1 0 0 4 2 2 0 1 0 0-4M4 17a2 2 0 1 0 0 4 2 2 0 1 0 0-4M20 17a2 2 0 1 0 0 4 2 2 0 1 0 0-4M12 7v4M4 17v-3a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3',
  search: 'M10 3a7 7 0 1 0 0 14 7 7 0 1 0 0-14m5 12 6 6', refresh: 'M20 7a9 9 0 0 0-15-1L2 9m0-6v6h6M4 17a9 9 0 0 0 15 1l3-3m0 6v-6h-6',
- stats: 'M3 3v18h18M7 16v-5m5 5V6m5 10V9', add: 'M5 2h10l4 4v16H5zM14 2v5h5M8 14h8m-4-4v8',
+ stats: 'M3 3v18h18M7 16v-5m5 5V6m5 10V9', diagnose: 'M3 12h4l2-6 4 12 2-6h6M12 2a10 10 0 1 0 10 10', add: 'M5 2h10l4 4v16H5zM14 2v5h5M8 14h8m-4-4v8',
  upload: 'M5 2h10l4 4v16H5zM9 13l3-3 3 3m-3-3v8', download: 'M5 2h10l4 4v16H5zM9 15l3 3 3-3m-3 3v-8',
  folder: 'M2 6h8l2 3h10v12H2zM11 15h6m-3-3v6', switch: 'M3 7h17m-4-4 4 4-4 4M21 17H4m4-4-4 4 4 4',
  clear: 'M12 2c0 7-7 8-7 14a7 7 0 0 0 14 0c0-5-4-7-7-14Z', delete: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',

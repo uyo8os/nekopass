@@ -33,6 +33,21 @@ message AgentMessage {
   bool restore_state = 15;
  PublicIPStatus public_ip = 16;
  IPRecoveryStatus ip_recovery_status = 17;
+ repeated DiagnosticResult diagnostic_results = 18;
+}
+message DiagnosticTask {
+ string task_id = 1;
+ int64 rule_id = 2;
+ string kind = 3;
+ int32 target_index = 4;
+ int64 egress_node_id = 5;
+ int64 ingress_node_id = 6;
+}
+message DiagnosticResult {
+ string task_id = 1;
+ string status = 2;
+ int64 latency_ms = 3;
+ string reason = 4;
 }
 message PublicIPStatus {
  string ipv4 = 1;
@@ -138,6 +153,7 @@ message ControlMessage {
   UpdateRequest update = 8;
   string control_endpoint = 9;
   StateRestore state_restore = 10;
+  repeated DiagnosticTask diagnostic_tasks = 11;
 }
 
 message UserStateBaseline {

@@ -70,25 +70,31 @@ func runSession(parent context.Context, e *Engine, client pb.ControlClient, toke
 	if err != nil {
 		return err
 	}
+	diagnostics := newDiagnosticSession(ctx, e)
 	for {
 		report, err := e.Report()
 		if err != nil {
 			return err
 		}
+		report.DiagnosticResults = diagnostics.results()
 		// Cancel an unresponsive stream rather than trusting TCP keepalive indefinitely.
 		watchdog := time.AfterFunc(8*time.Second, cancel)
 		if err = stream.Send(report); err != nil {
 			watchdog.Stop()
 			return err
 		}
+		diagnostics.sent(report.DiagnosticResults)
 		config, err := stream.Recv()
 		watchdog.Stop()
 		if err != nil {
 			return err
 		}
+		tasks := config.DiagnosticTasks
+		config.DiagnosticTasks = nil // Diagnostic requests are ephemeral, never persist them with the node configuration.
 		if err = e.Apply(config); err != nil {
 			return err
 		}
+		diagnostics.schedule(config, tasks)
 		if config.ControlEndpoint != "" && config.ControlEndpoint != server {
 			if _, _, err := controlEndpoint(config.ControlEndpoint); err != nil {
 				return err

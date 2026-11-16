@@ -66,7 +66,7 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if report.ProtocolVersion < 5 {
 			return status.Error(codes.FailedPrecondition, "upgrade Agent to protocol v5 or newer")
 		}
-		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 {
+		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 || len(report.DiagnosticResults) > 256 {
 			return status.Error(codes.InvalidArgument, "invalid report")
 		}
 		result, e := s.exchangeWithCredential(ctx, conn, node.ID, report, Hash(presentedToken))
@@ -76,6 +76,7 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if report.ProtocolVersion >= 12 {
 			result.ControlEndpoint = s.Server.controlEndpoint()
 		}
+		s.Server.diagnosticExchange(node.ID, report, result)
 		// gRPC checks its send limit after marshaling. Reject an oversized
 		// snapshot here rather than allocating that entire wire buffer on each
 		// reconnect before gRPC returns the same size-limit error.
