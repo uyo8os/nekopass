@@ -1177,6 +1177,19 @@ paths:
             schema: {$ref: '#/components/schemas/NodeInput'}
       responses:
         '200': {description: Created resource ID}
+  /admin/nodes/order:
+    put:
+      summary: Set the display order of all nodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeResourceOrderInput'}
+      responses:
+        '200': {description: Order saved}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {description: The resource list changed; refresh before retrying}
   /admin/nodes/{id}:
     parameters:
       - {$ref: '#/components/parameters/ID'}
@@ -1209,6 +1222,19 @@ paths:
             schema: {$ref: '#/components/schemas/NodeGroupInput'}
       responses:
         '200': {description: Created resource ID}
+  /admin/node-groups/order:
+    put:
+      summary: Set the display order of all node groups
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NodeResourceOrderInput'}
+      responses:
+        '200': {description: Order saved}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {description: The resource list changed; refresh before retrying}
   /admin/node-groups/{id}:
     parameters:
       - {$ref: '#/components/parameters/ID'}
@@ -1628,6 +1654,14 @@ components:
         duration_days: {type: integer, minimum: 0, maximum: 36500, description: 0 unlimited}
         purchase_limit: {type: integer, minimum: 0, maximum: 1000000, default: 0, description: Per-user cumulative successful purchases including renewals; 0 means unlimited}
         node_group_ids: {type: array, items: {type: integer, format: int64}}
+    NodeResourceOrderInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          description: All current IDs, in the desired order; duplicates are not permitted.
+          items: {type: integer, format: int64}
     NodeGroupInput:
       type: object
       required: [name, enabled, node_ids]

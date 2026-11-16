@@ -103,4 +103,10 @@ INSERT INTO rules(id,user_id,node_id,listen_port,target_host,target_port) VALUES
  AND (SELECT count(*)=2 FROM rule_ports WHERE rule_id=1)`).Scan(&ok); err != nil || !ok {
 		t.Fatal("v44 did not preserve existing group and rule", err)
 	}
+	exec(migration045)
+	if err := tx.QueryRow(ctx, `SELECT (SELECT max(version)=45 FROM schema_version)
+ AND (SELECT bool_and(sort_order IS NULL) FROM nodes)
+ AND (SELECT ingress_group_id=1 FROM rules WHERE id=1)`).Scan(&ok); err != nil || !ok {
+		t.Fatal("v45 did not preserve existing order and rule", err)
+	}
 }
