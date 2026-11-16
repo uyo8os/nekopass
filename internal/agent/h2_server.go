@@ -307,7 +307,7 @@ func h2RuleAllowed(policy *tunnelPolicy, open h2Open) bool {
 	if network == "" {
 		network = "tcp"
 	}
-	if policy == nil || policy.rules[open.Rule] == nil || !networkIncludes(policy.rules[open.Rule].Protocol, network) {
+	if policy == nil || policy.rules[tunnelRuleKey{open.Rule, open.Ingress}] == nil || !networkIncludes(policy.rules[tunnelRuleKey{open.Rule, open.Ingress}].Protocol, network) {
 		return false
 	}
 	return tunnelRuleAllowed(policy, open.Rule, open.Ingress, open.User, open.Epoch, open.Target)

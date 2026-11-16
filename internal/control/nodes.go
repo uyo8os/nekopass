@@ -97,6 +97,14 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 	if !validID {
 		return
 	}
+	var oldGroups []int64
+	var oldIngress, oldEnabled bool
+	if id != 0 {
+		if err := tx.QueryRow(ctx, `SELECT ingress_enabled,enabled,COALESCE((SELECT array_agg(group_id) FROM node_group_members WHERE node_id=$1),'{}') FROM nodes WHERE id=$1`, id).Scan(&oldIngress, &oldEnabled, &oldGroups); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			s.dbError(w, err)
+			return
+		}
+	}
 	var retainedHash string
 	if partial != nil {
 		if id == 0 {
@@ -185,7 +193,7 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 	if id != 0 {
 		var blocked bool
 		if !v.IngressEnabled {
-			if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules WHERE node_id=$1)", id).Scan(&blocked); e != nil {
+			if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules WHERE node_id=$1 AND ingress_group_id IS NULL)", id).Scan(&blocked); e != nil {
 				s.dbError(w, e)
 				return
 			}
@@ -194,7 +202,7 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 				return
 			}
 		}
-		if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules WHERE node_id=$1 AND egress_node_id IS NULL AND egress_group_id IS NULL)", id).Scan(&blocked); e != nil {
+		if e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules r JOIN rule_ingress_nodes ri ON ri.rule_id=r.id WHERE ri.node_id=$1 AND r.egress_node_id IS NULL AND r.egress_group_id IS NULL)", id).Scan(&blocked); e != nil {
 			s.dbError(w, e)
 			return
 		}
@@ -276,7 +284,7 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 		e = tx.QueryRow(ctx, "INSERT INTO nodes(name,token_hash,token) VALUES($1,$2,$3) RETURNING id", v.Name, tokenHash, token).Scan(&id)
 	} else {
 		var conflict bool
-		e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules WHERE node_id=$1 AND tls_inbound_id IS NULL AND listen_port NOT BETWEEN $2 AND $3)", id, v.PortMin, v.PortMax).Scan(&conflict)
+		e = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rules r JOIN rule_ingress_nodes ri ON ri.rule_id=r.id WHERE ri.node_id=$1 AND r.tls_inbound_id IS NULL AND r.listen_port NOT BETWEEN $2 AND $3)", id, v.PortMin, v.PortMax).Scan(&conflict)
 		if e == nil && conflict {
 			fail(w, 409, "已有规则端口超出新范围，请先修改这些规则")
 			return
@@ -343,7 +351,7 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 			return
 		}
 	}
-	if _, e = tx.Exec(ctx, "DELETE FROM node_tunnel_links l WHERE egress_node_id=$1 AND NOT (ingress_node_id=ANY($2::bigint[])) AND NOT EXISTS(SELECT 1 FROM rules r WHERE r.node_id=l.ingress_node_id AND r.egress_node_id=l.egress_node_id)", id, v.AllowedIngressIDs); e != nil {
+	if _, e = tx.Exec(ctx, "DELETE FROM node_tunnel_links l WHERE egress_node_id=$1 AND NOT (ingress_node_id=ANY($2::bigint[])) AND NOT EXISTS(SELECT 1 FROM rules r JOIN rule_ingress_nodes ri ON ri.rule_id=r.id WHERE ri.node_id=l.ingress_node_id AND r.egress_node_id=l.egress_node_id)", id, v.AllowedIngressIDs); e != nil {
 		s.dbError(w, e)
 		return
 	}
@@ -379,6 +387,25 @@ func (s *Server) saveNodePart(w http.ResponseWriter, r *http.Request, part strin
 			s.dbError(w, e)
 			return
 		}
+	}
+	for _, g := range v.GroupIDs {
+		wasMember := false
+		for _, old := range oldGroups {
+			if old == g {
+				wasMember = true
+				break
+			}
+		}
+		if v.IngressEnabled && (!oldIngress || !oldEnabled || !wasMember) {
+			if e = validateNewIngressMember(ctx, tx, g, id); e != nil {
+				fail(w, 409, publicOperationError(e))
+				return
+			}
+		}
+	}
+	if e = reanchorIngressRules(ctx, tx); e != nil {
+		fail(w, 409, publicOperationError(e))
+		return
 	}
 	if e = finishRules(ctx, tx); e != nil {
 		s.dbError(w, e)
@@ -430,6 +457,15 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hasRules {
+		var emptyGroupAnchor bool
+		if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rules r WHERE r.node_id=$1 AND r.ingress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_ingress_nodes ri WHERE ri.rule_id=r.id))`, id).Scan(&emptyGroupAnchor); e != nil {
+			s.dbError(w, e)
+			return
+		}
+		if emptyGroupAnchor {
+			fail(w, 409, "此节点仍被空入口组的规则引用；请先向该入口组添加其他入口节点，或删除相关规则")
+			return
+		}
 		fail(w, 409, "此节点仍被转发规则用作入口或出口，请先迁移或删除相关规则")
 		return
 	}
@@ -540,6 +576,11 @@ func (s *Server) saveNodeGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var oldMembers []int64
+	if e = tx.QueryRow(ctx, `SELECT COALESCE(array_agg(node_id),'{}') FROM node_group_members WHERE group_id=$1`, id).Scan(&oldMembers); e != nil {
+		s.dbError(w, e)
+		return
+	}
 	tag, e := tx.Exec(ctx, "UPDATE node_groups SET name=$2,description=$3,enabled=$4,sort_order=$5,strategy=$6,health_interval_seconds=$7,health_failures=$8,health_successes=$9 WHERE id=$1", id, v.Name, v.Description, v.Enabled, v.SortOrder, v.Strategy, v.HealthIntervalSeconds, v.HealthFailures, v.HealthSuccesses)
 	if e != nil {
 		s.dbError(w, e)
@@ -564,6 +605,25 @@ func (s *Server) saveNodeGroup(w http.ResponseWriter, r *http.Request) {
 			s.dbError(w, e)
 			return
 		}
+	}
+	for _, n := range v.NodeIDs {
+		wasMember := false
+		for _, old := range oldMembers {
+			if old == n {
+				wasMember = true
+				break
+			}
+		}
+		if !wasMember {
+			if e = validateNewIngressMember(ctx, tx, id, n); e != nil {
+				fail(w, 409, publicOperationError(e))
+				return
+			}
+		}
+	}
+	if e = reanchorIngressRules(ctx, tx); e != nil {
+		fail(w, 409, publicOperationError(e))
+		return
 	}
 	if e = finishRules(ctx, tx); e != nil {
 		s.dbError(w, e)

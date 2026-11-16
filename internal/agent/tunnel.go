@@ -31,15 +31,20 @@ type tunnelPolicy struct {
 	congestion   map[int64]*pb.TunnelCongestion
 	nativeRoutes map[[16]byte]nativeLink
 	links        map[int64]string
-	rules        map[int64]*pb.EgressRule
+	rules        map[tunnelRuleKey]*pb.EgressRule
 	dialTimeout  time.Duration
+}
+
+type tunnelRuleKey struct {
+	ruleID  int64
+	ingress int64
 }
 
 func tunnelRuleAllowed(policy *tunnelPolicy, ruleID, ingress, userID, epoch int64, target string) bool {
 	if policy == nil {
 		return false
 	}
-	allowed := policy.rules[ruleID]
+	allowed := policy.rules[tunnelRuleKey{ruleID, ingress}]
 	if allowed == nil || allowed.IngressNodeId != ingress || allowed.UserId != userID || allowed.QuotaEpoch != epoch || allowed.ExpiresUnix != 0 && time.Now().Unix() >= allowed.ExpiresUnix {
 		return false
 	}
@@ -152,7 +157,7 @@ func dialTunnel(ctx context.Context, rule *pb.Rule, target string) (net.Conn, er
 }
 
 func policyOf(c *pb.ControlMessage) *tunnelPolicy {
-	p := &tunnelPolicy{links: map[int64]string{}, rules: map[int64]*pb.EgressRule{}, dialTimeout: 8 * time.Second}
+	p := &tunnelPolicy{links: map[int64]string{}, rules: map[tunnelRuleKey]*pb.EgressRule{}, dialTimeout: 8 * time.Second}
 	p.nativeRoutes = map[[16]byte]nativeLink{}
 	p.congestion = map[int64]*pb.TunnelCongestion{}
 	if c.Node != nil && c.Node.DialTimeoutSeconds > 0 {
@@ -164,7 +169,7 @@ func policyOf(c *pb.ControlMessage) *tunnelPolicy {
 		p.nativeRoutes[nativeRouteTag(link.Token)] = nativeLink{ingress: link.IngressNodeId, key: link.Token, congestion: link.Congestion}
 	}
 	for _, rule := range c.EgressRules {
-		p.rules[rule.RuleId] = proto.Clone(rule).(*pb.EgressRule)
+		p.rules[tunnelRuleKey{rule.RuleId, rule.IngressNodeId}] = proto.Clone(rule).(*pb.EgressRule)
 	}
 	return p
 }
@@ -380,7 +385,7 @@ func (e *Engine) handleTunnel(ctx context.Context, upstream net.Conn) {
 	if policy == nil {
 		return
 	}
-	allowed := policy.rules[ruleID]
+	allowed := policy.rules[tunnelRuleKey{ruleID, ingress}]
 	key := string(header[20:84])
 	if allowed == nil || len(policy.links[ingress]) != 64 || policy.links[ingress] != key {
 		return

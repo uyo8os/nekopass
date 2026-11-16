@@ -32,6 +32,7 @@ func (p *RuleBatchPatch) apply(in *RuleInput) error {
 			return errors.New("共享 TLS 规则切换入口时，请逐条编辑并选择新节点的共享 TLS 入口")
 		}
 		in.NodeID = *p.NodeID
+		in.IngressGroupID = 0
 		in.ListenPort = 0 // Follow the existing batch ingress-switch allocation policy.
 	}
 	if p.EgressNodeID != nil {

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -58,6 +59,33 @@ func (s *Server) ruleEgressGroups(w http.ResponseWriter, r *http.Request) {
 	s.sendRows(w, rows, err)
 }
 
+func (s *Server) ruleIngressGroups(w http.ResponseWriter, r *http.Request) {
+	u := ruleActor(r)
+	rows, err := s.Pool.Query(r.Context(), `SELECT g.id,g.name,COALESCE((SELECT array_agg(n.id ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'{}') AS node_ids,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',n.id,'name',n.name,'enabled',n.enabled,'port_min',n.port_min,'port_max',n.port_max,'allow_direct',n.allow_direct,'deny_udp_ingress_creation',n.deny_udp_ingress_creation,'ingress_multiplier',to_char(n.ingress_rate::numeric/10000,'FM9990.0000')) ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=g.id),'[]') AS members FROM node_groups g JOIN user_node_groups ug ON ug.group_id=g.id AND ug.user_id=$1 WHERE g.enabled ORDER BY g.sort_order,g.id`, u.ID)
+	s.sendRows(w, rows, err)
+}
+
+// Keep the legacy node reference on a current member whenever one exists.
+// Empty groups retain their last reference until another member is added.
+func reanchorIngressRules(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `UPDATE rules r SET node_id=member.node_id FROM (SELECT ri.rule_id,min(ri.node_id) AS node_id FROM rule_ingress_nodes ri JOIN rules x ON x.id=ri.rule_id AND x.ingress_group_id IS NOT NULL GROUP BY ri.rule_id) member WHERE r.id=member.rule_id AND r.node_id<>member.node_id`)
+	return err
+}
+
+// A newly added ingress must satisfy every rule already assigned to its group.
+// The stream also validates routes, so later permission changes fail closed.
+func validateNewIngressMember(ctx context.Context, tx pgx.Tx, groupID, nodeID int64) error {
+	var ruleID int64
+	err := tx.QueryRow(ctx, `SELECT r.id FROM rules r JOIN nodes n ON n.id=$2 AND n.ingress_enabled AND n.enabled WHERE r.ingress_group_id=$1 AND (r.protocol='udp' AND n.deny_udp_ingress_creation OR r.egress_node_id IS NULL AND r.egress_group_id IS NULL AND NOT n.allow_direct OR (r.egress_node_id IS NOT NULL OR r.egress_group_id IS NOT NULL) AND EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=n.id) AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes o WHERE o.rule_id=r.id AND o.ingress_node_id=n.id)) ORDER BY r.id LIMIT 1`, groupID, nodeID).Scan(&ruleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("节点 %d 不符合入口组已有规则 %d 的协议或出口配置，请先调整节点与出口关联", nodeID, ruleID)
+}
+
 type groupRuleDraft struct {
 	rule    *pb.Rule
 	peer    *pb.Rule
@@ -110,7 +138,7 @@ func appendGroupDrafts(ctx context.Context, tx pgx.Tx, out *pb.ControlMessage) (
 		r.HealthFailures = g.failures
 		r.HealthSuccesses = g.successes
 	}
-	rows, err = tx.Query(ctx, `SELECT o.rule_id,n.id,n.tunnel_public_host,n.tunnel_listen_port,l.token,n.tunnel_protocol,o.weight,o.role='standby' FROM rule_outbound_routes o JOIN rules r ON r.id=o.rule_id JOIN nodes n ON n.id=o.egress_node_id JOIN node_tunnel_links l ON l.ingress_node_id=r.node_id AND l.egress_node_id=n.id WHERE o.rule_id=ANY($1::bigint[]) AND n.protocol_version>=24 ORDER BY o.rule_id,n.id`, ruleIDs)
+	rows, err = tx.Query(ctx, `SELECT o.rule_id,n.id,n.tunnel_public_host,n.tunnel_listen_port,l.token,n.tunnel_protocol,o.weight,o.role='standby' FROM rule_outbound_routes o JOIN rules r ON r.id=o.rule_id JOIN nodes n ON n.id=o.egress_node_id JOIN node_tunnel_links l ON l.ingress_node_id=o.ingress_node_id AND l.egress_node_id=n.id WHERE o.rule_id=ANY($1::bigint[]) AND o.ingress_node_id=$2 AND n.protocol_version>=24 AND (r.ingress_group_id IS NULL OR n.protocol_version >= $3) ORDER BY o.rule_id,n.id`, ruleIDs, out.Node.NodeId, pb.MultiIngressVersion)
 	if err != nil {
 		return nil, err
 	}

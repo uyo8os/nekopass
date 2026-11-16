@@ -1,7 +1,10 @@
 package protocol
 
 // CurrentVersion is the configuration capability version advertised by the agent.
-const CurrentVersion int32 = 36
+const CurrentVersion int32 = 37
+
+// MultiIngressVersion indexes exit authorization by both rule and ingress.
+const MultiIngressVersion int32 = 37
 
 const IPRecoveryProfileVersion int32 = 36
 

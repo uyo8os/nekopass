@@ -18,3 +18,15 @@ export function egressChoices(nodes:RuleNode[],groups:RuleEgressGroup[],ingress:
   }),
  ]
 }
+
+// A shared ingress rule needs an exit usable by every member.
+export function sharedEgressChoices(nodes:RuleNode[],groups:RuleEgressGroup[],ingresses:number[],protocol:string):EgressOption[]{
+ if(!ingresses.length)return []
+ const all=ingresses.map(id=>egressChoices(nodes,groups,id,protocol))
+ return all[0].filter(option=>all.slice(1).every(options=>options.some(candidate=>candidate.value===option.value))).map(option=>({...option,hint:undefined}))
+}
+
+export function sharedPortRange(nodes:RuleNode[]):{min:number;max:number}|null{
+ if(!nodes.length)return null
+ return {min:Math.max(...nodes.map(n=>n.port_min)),max:Math.min(...nodes.map(n=>n.port_max))}
+}

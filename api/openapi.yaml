@@ -1064,6 +1064,11 @@ paths:
       summary: Explicitly authorized egress groups, without node credentials
       responses:
         '200': {description: 'Array of id, name, strategy and eligible member node_ids; filter by ingress links and business protocol when selecting'}
+  /rule-ingress-groups:
+    get:
+      summary: Explicitly authorized ingress groups, without node credentials
+      responses:
+        '200': {description: 'Array of id, name and ingress member configuration; includes disabled members for common port reservation'}
   /node-status:
     get:
       summary: User probe grouped by allowed plan node groups; no address or admin configuration fields
@@ -1307,6 +1312,17 @@ paths:
         schema: {type: integer, format: int64}
     get:
       summary: Authorized egress groups scoped to the managed user, administrators only
+      responses:
+        '200': {description: Group choices array}
+        '403': {$ref: '#/components/responses/Error'}
+  /admin/users/{userID}/rule-ingress-groups:
+    parameters:
+      - name: userID
+        in: path
+        required: true
+        schema: {type: integer, format: int64}
+    get:
+      summary: Authorized ingress groups scoped to the managed user, administrators only
       responses:
         '200': {description: Group choices array}
         '403': {$ref: '#/components/responses/Error'}
@@ -1569,6 +1585,7 @@ components:
         protocol: {type: string, enum: [tcp, udp], default: tcp, description: 'Business protocol; UDP requires Agent protocol 16, raw_udp exits require udp only. Proxy Protocol is TCP-only.'}
         user_id: {type: integer, format: int64, description: Ignored; owner is session or admin-managed user}
         node_id: {type: integer, format: int64}
+        ingress_group_id: {type: integer, format: int64, minimum: 0, default: 0, description: 'Authorized dynamic ingress group; nonzero deploys one ordinary rule on each ingress-enabled member with a common port. Shared TLS inbound is not supported with a group.'}
         tls_inbound_id: {type: integer, format: int64, minimum: 0, default: 0, description: 'Shared TLS listener; requires TCP and Agent protocol 21; TLS stays end to end between client and target. Zero uses an ordinary rule port.'}
         sni_names: {type: array, maxItems: 32, items: {type: string}, description: 'Exact SNI domains; 1-32 required for shared TLS; names remain reserved when paused'}
         tls_alpn: {type: array, maxItems: 0, items: {type: string}, deprecated: true, description: 'Must be empty; shared listeners transparently preserve client-to-target ALPN negotiation'}

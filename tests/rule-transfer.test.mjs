@@ -102,3 +102,12 @@ test('SNI passthrough rules require full backup and survive native import', () =
   assert.deepEqual(imported.sni_names,['app.example.com'])
   assert.deepEqual(imported.origin_tls,rule.origin_tls)
 })
+
+
+test('ingress group rules survive a native backup and cannot be exported as Nyanpass', () => {
+  const original = { user_id: 7, node_id: 11, ingress_group_id: 42, egress_node_id: 0, name: '组入口', group_id: 0, listen_port: 8080, targets: ['example.com:443'], balance: 'random', speed_mbps: 0, ip_limit: 0, connection_limit: 0, proxy_accept: 'off', proxy_send: 'off', proxy_trusted_cidrs: [], enabled: true, protocol: 'tcp' }
+  const imported = prepareRuleImport(parseRuleImport(JSON.stringify({ rules: [original] })), destination)
+  assert.equal(imported[0].ingress_group_id, 42)
+  assert.equal(imported[0].listen_port, 8080)
+  assert.throws(() => encodeNyanpassRules([original]), /使用入口节点组.*Nekopass 完整备份/)
+})

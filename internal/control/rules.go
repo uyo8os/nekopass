@@ -27,6 +27,7 @@ type RuleInput struct {
 	Protocol          string               `json:"protocol"`
 	UserID            int64                `json:"user_id"`
 	NodeID            int64                `json:"node_id"`
+	IngressGroupID    int64                `json:"ingress_group_id"`
 	EgressGroupID     int64                `json:"egress_group_id"`
 	EgressNodeID      int64                `json:"egress_node_id"`
 	Name              string               `json:"name"`
@@ -176,6 +177,25 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 	if !actor.IsAdmin {
 		in.UserID = actor.ID
 	}
+	if in.IngressGroupID < 0 {
+		return 0, errors.New("入口节点组无效")
+	}
+	ingressIDs := []int64{in.NodeID}
+	if in.IngressGroupID != 0 {
+		if in.TLSInboundID != 0 {
+			return 0, errors.New("入口节点组暂不支持共享 TLS 入站")
+		}
+		var permitted bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_node_groups ug JOIN node_groups g ON g.id=ug.group_id AND g.enabled WHERE ug.user_id=$1 AND ug.group_id=$2), COALESCE((SELECT array_agg(n.id ORDER BY n.id) FROM node_group_members m JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled WHERE m.group_id=$2),'{}')`, in.UserID, in.IngressGroupID).Scan(&permitted, &ingressIDs); err != nil {
+			return 0, err
+		}
+		if !permitted || len(ingressIDs) == 0 {
+			return 0, errors.New("入口节点组无权限或没有成员")
+		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM nodes WHERE id=ANY($1::bigint[]) AND enabled ORDER BY id LIMIT 1`, ingressIDs).Scan(&in.NodeID); err != nil {
+			return 0, errors.New("入口节点组没有启用的入口节点")
+		}
+	}
 	settings, err := readSystemSettings(ctx, tx)
 	if err != nil {
 		return 0, err
@@ -196,10 +216,11 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 		}
 	}
 	var oldNodeID int64
+	var oldIngressGroupID int64
 	var oldProtocol string
 	if id != 0 {
 		var owner int64
-		if e := tx.QueryRow(ctx, "SELECT user_id,node_id,protocol FROM rules WHERE id=$1 AND ($2 OR user_id=$3) FOR UPDATE", id, actor.IsAdmin, actor.ID).Scan(&owner, &oldNodeID, &oldProtocol); e != nil {
+		if e := tx.QueryRow(ctx, "SELECT user_id,node_id,COALESCE(ingress_group_id,0),protocol FROM rules WHERE id=$1 AND ($2 OR user_id=$3) FOR UPDATE", id, actor.IsAdmin, actor.ID).Scan(&owner, &oldNodeID, &oldIngressGroupID, &oldProtocol); e != nil {
 			return 0, errors.New("规则不存在或无权操作")
 		}
 		if owner != in.UserID {
@@ -217,6 +238,17 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 	if !usable {
 		return 0, errors.New("用户已停用或到期")
 	}
+	if in.IngressGroupID != 0 {
+		for _, nodeID := range ingressIDs {
+			var valid bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM nodes n WHERE n.id=$2 AND (NOT n.enabled OR (EXISTS(SELECT 1 FROM user_nodes un WHERE un.node_id=n.id AND un.user_id=$1) AND n.ingress_enabled AND ($3<>'udp' OR NOT n.deny_udp_ingress_creation OR $6) AND (($4=0 AND $5=0 AND n.allow_direct) OR ($4<>0 AND EXISTS(SELECT 1 FROM nodes x JOIN user_nodes xu ON xu.node_id=x.id AND xu.user_id=$1 JOIN node_tunnel_links l ON l.egress_node_id=x.id AND l.ingress_node_id=n.id WHERE x.id=$4 AND x.id<>n.id AND x.enabled AND x.tunnel_exit_enabled AND ($3='udp' OR x.tunnel_protocol NOT IN ('plain_udp','dtls_udp','random_udp')))) OR ($5<>0 AND EXISTS(SELECT 1 FROM user_node_groups ug JOIN node_groups g ON g.id=ug.group_id AND g.enabled JOIN node_group_members m ON m.group_id=g.id AND m.role<>'disabled' JOIN nodes x ON x.id=m.node_id AND x.enabled AND x.tunnel_exit_enabled JOIN user_nodes xu ON xu.node_id=x.id AND xu.user_id=$1 JOIN node_tunnel_links l ON l.egress_node_id=x.id AND l.ingress_node_id=n.id WHERE ug.user_id=$1 AND ug.group_id=$5 AND x.id<>n.id AND ($3='udp' OR x.tunnel_protocol NOT IN ('plain_udp','dtls_udp','random_udp'))))))))`, in.UserID, nodeID, in.Protocol, in.EgressNodeID, in.EgressGroupID, id != 0 && oldIngressGroupID == in.IngressGroupID && oldProtocol == "udp").Scan(&valid); err != nil {
+				return 0, err
+			}
+			if !valid {
+				return 0, fmt.Errorf("入口节点 %d 不可用、不允许此协议或未关联可用出口", nodeID)
+			}
+		}
+	}
 	var allowed bool
 	if e := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM user_nodes WHERE user_id=$1 AND node_id=$2)", in.UserID, in.NodeID).Scan(&allowed); e != nil {
 		return 0, e
@@ -233,7 +265,7 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 	}
 	// This is an admission policy: existing UDP rules on this ingress remain usable.
 	// Copies, TCP-to-UDP changes and moves from another ingress need new admission.
-	if denyUDP && in.Protocol == "udp" && !(id != 0 && oldNodeID == in.NodeID && oldProtocol == "udp") {
+	if denyUDP && in.Protocol == "udp" && !(id != 0 && oldProtocol == "udp" && (oldNodeID == in.NodeID && in.IngressGroupID == 0 || in.IngressGroupID != 0 && oldIngressGroupID == in.IngressGroupID)) {
 		return 0, errors.New("此节点禁止创建新的 UDP 入站规则，请选择其他入口")
 	}
 	if in.EgressGroupID != 0 {
@@ -306,7 +338,7 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 	}
 	if in.ListenPort == 0 && in.TLSInboundID == 0 {
 		// The rule transaction lock serializes allocation, including import and switch operations.
-		if e := tx.QueryRow(ctx, `SELECT p FROM generate_series($3::integer,$4::integer) p WHERE (NOT $6 OR p<>$7) AND NOT EXISTS(SELECT 1 FROM rule_ports WHERE node_id=$1 AND listen_port=p AND COALESCE(rule_id,0)<>$2 AND ($5='tcp_udp' OR protocol=$5)) ORDER BY random() LIMIT 1`, in.NodeID, id, portMin, portMax, in.Protocol, portConflict, reservedPort).Scan(&in.ListenPort); e != nil {
+		if e := tx.QueryRow(ctx, `SELECT p FROM generate_series($3::integer,$4::integer) p WHERE NOT EXISTS(SELECT 1 FROM nodes n WHERE n.id=ANY($1::bigint[]) AND (p NOT BETWEEN n.port_min AND n.port_max OR (n.tunnel_exit_enabled AND n.tunnel_listen_port=p AND (($5='udp' AND n.tunnel_protocol IN ('plain_udp','dtls_udp','random_udp','tls_h3')) OR ($5='tcp' AND n.tunnel_protocol NOT IN ('plain_udp','dtls_udp','random_udp')))))) AND NOT EXISTS(SELECT 1 FROM rule_ports WHERE node_id=ANY($1::bigint[]) AND listen_port=p AND COALESCE(rule_id,0)<>$2 AND protocol=$5) ORDER BY random() LIMIT 1`, ingressIDs, id, portMin, portMax, in.Protocol).Scan(&in.ListenPort); e != nil {
 			return 0, errors.New("没有可分配端口")
 		}
 	}
@@ -320,7 +352,7 @@ func putRule(ctx context.Context, tx pgx.Tx, actor store.User, id int64, in Rule
 			return 0, e
 		}
 	}
-	_, e := tx.Exec(ctx, `UPDATE rules SET node_id=$2,name=$3,group_id=NULLIF($4,0),listen_port=$5,target_host=$6,target_port=$7,enabled=$8,targets=$9,balance=$10,speed_mbps=$11,ip_limit=$12,connection_limit=$13,proxy_accept=$14,proxy_send=$15,proxy_trusted_cidrs=$16,egress_node_id=NULLIF($17,0),protocol=$18,tls_inbound_id=NULLIF($19,0),sni_names=$20,tls_alpn=$21,origin_tls=$22,egress_group_id=NULLIF($23,0),config_revision=(SELECT value+1 FROM revision WHERE id=1) WHERE id=$1`, id, in.NodeID, in.Name, in.GroupID, in.ListenPort, in.TargetHost, in.TargetPort, in.Enabled, targets, in.Balance, in.SpeedMbps, in.IPLimit, in.ConnectionLimit, in.ProxyAccept, in.ProxySend, trusted, in.EgressNodeID, in.Protocol, in.TLSInboundID, sni, alpn, origin, in.EgressGroupID)
+	_, e := tx.Exec(ctx, `UPDATE rules SET node_id=$2,name=$3,group_id=NULLIF($4,0),listen_port=$5,target_host=$6,target_port=$7,enabled=$8,targets=$9,balance=$10,speed_mbps=$11,ip_limit=$12,connection_limit=$13,proxy_accept=$14,proxy_send=$15,proxy_trusted_cidrs=$16,egress_node_id=NULLIF($17,0),protocol=$18,tls_inbound_id=NULLIF($19,0),sni_names=$20,tls_alpn=$21,origin_tls=$22,egress_group_id=NULLIF($23,0),ingress_group_id=NULLIF($24,0),config_revision=(SELECT value+1 FROM revision WHERE id=1) WHERE id=$1`, id, in.NodeID, in.Name, in.GroupID, in.ListenPort, in.TargetHost, in.TargetPort, in.Enabled, targets, in.Balance, in.SpeedMbps, in.IPLimit, in.ConnectionLimit, in.ProxyAccept, in.ProxySend, trusted, in.EgressNodeID, in.Protocol, in.TLSInboundID, sni, alpn, origin, in.EgressGroupID, in.IngressGroupID)
 	if e == nil {
 		_, e = tx.Exec(ctx, "INSERT INTO rule_usage(node_id,rule_id,user_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", in.NodeID, id, in.UserID)
 	}
@@ -365,10 +397,11 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, e)
 		return
 	}
-	rows, e := s.Pool.Query(r.Context(), `SELECT r.id,r.user_id,r.node_id,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,u.rule_speed_bps/125000 AS speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
+	rows, e := s.Pool.Query(r.Context(), `SELECT r.id,r.user_id,r.node_id,COALESCE(r.ingress_group_id,0) AS ingress_group_id,COALESCE(ig.name,'') AS ingress_group_name,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'name',x.name,'public_address',x.public_address,'enabled',x.enabled,'online',COALESCE(x.enabled AND x.last_seen>now()-interval '12 seconds',false),'status',CASE WHEN NOT x.enabled THEN 'disabled' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups zug WHERE zug.user_id=r.user_id AND zug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=x.id) THEN 'unauthorized' WHEN r.egress_node_id IS NULL AND r.egress_group_id IS NULL AND NOT x.allow_direct THEN 'unauthorized' WHEN (r.egress_node_id IS NOT NULL OR r.egress_group_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes zo WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND r.egress_node_id IS NOT NULL AND COALESCE((SELECT protocol_version FROM nodes WHERE id=r.egress_node_id),0)<$6 THEN 'upgrade_required' WHEN r.ingress_group_id IS NOT NULL AND r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes zo JOIN nodes zx ON zx.id=zo.egress_node_id WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id AND zx.protocol_version >= $6) THEN 'upgrade_required' WHEN x.last_seen IS NULL OR x.last_seen<now()-interval '12 seconds' THEN 'offline' WHEN x.sync_error<>'' THEN 'failed' WHEN x.applied_revision<r.config_revision THEN 'pending' ELSE 'active' END,'sync_error',x.sync_error,'applied_revision',x.applied_revision,'config_revision',r.config_revision) ORDER BY x.id) FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id WHERE ri.rule_id=r.id),'[]') AS ingress_nodes,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,u.rule_speed_bps/125000 AS speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
  COALESCE(g.name,'') AS group_name,GREATEST(COALESCE((SELECT sum(t.traffic) FROM all_rule_usage t WHERE t.rule_id=r.id),0)::bigint-r.traffic_baseline,0) AS traffic_bytes,
- CASE WHEN NOT r.enabled THEN 'disabled' WHEN NOT u.account_enabled THEN 'user_disabled' WHEN u.plan_id IS NULL THEN 'no_plan' WHEN NOT u.plan_enabled THEN 'plan_disabled' WHEN u.expires_at<=now() THEN 'expired' WHEN NOT n.ingress_enabled OR NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=r.node_id) OR (r.egress_node_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=r.egress_node_id)) THEN 'unauthorized'
- WHEN r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes o WHERE o.rule_id=r.id) THEN 'unauthorized'
+ CASE WHEN NOT r.enabled THEN 'disabled' WHEN NOT u.account_enabled THEN 'user_disabled' WHEN u.plan_id IS NULL THEN 'no_plan' WHEN NOT u.plan_enabled THEN 'plan_disabled' WHEN u.expires_at<=now() THEN 'expired' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups ug WHERE ug.user_id=r.user_id AND ug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id AND x.enabled WHERE ri.rule_id=r.id) THEN 'offline' WHEN NOT n.ingress_enabled OR NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=n.id) OR (r.egress_node_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=r.egress_node_id)) THEN 'unauthorized'
+ WHEN r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes o WHERE o.rule_id=r.id AND o.ingress_node_id=n.id) THEN 'unauthorized'
+ WHEN r.ingress_group_id IS NOT NULL AND r.egress_node_id IS NOT NULL AND en.protocol_version<$6 THEN 'upgrade_required'
  WHEN r.egress_group_id IS NOT NULL AND n.protocol_version<24 THEN 'upgrade_required'
  WHEN r.egress_group_id IS NOT NULL AND gc.compatible=0 THEN 'upgrade_required'
  WHEN r.egress_group_id IS NOT NULL AND gc.usable=0 AND gc.online_compatible>0 THEN 'bandwidth_required'
@@ -396,7 +429,7 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	 WHEN en.tunnel_protocol='tls_h2' AND (n.protocol_version<11 OR en.protocol_version<11) THEN 'upgrade_required'
  WHEN en.tunnel_protocol IN ('tls_tcp','plain_h2') AND (n.protocol_version<13 OR en.protocol_version<13) THEN 'upgrade_required'
 	 WHEN n.sync_error<>'' OR COALESCE(en.sync_error,'')<>'' THEN 'failed' WHEN n.applied_revision<r.config_revision OR (en.id IS NOT NULL AND en.applied_revision<r.config_revision) THEN 'pending' ELSE 'active' END AS status
-	 FROM rules r JOIN user_entitlements u ON u.id=r.user_id JOIN nodes n ON n.id=r.node_id LEFT JOIN nodes en ON en.id=r.egress_node_id LEFT JOIN node_groups eg ON eg.id=r.egress_group_id LEFT JOIN node_tls_inbounds ti ON ti.id=r.tls_inbound_id LEFT JOIN rule_groups g ON g.id=r.group_id
+	 FROM rules r JOIN user_entitlements u ON u.id=r.user_id JOIN nodes n ON n.id=COALESCE((SELECT ri.node_id FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id WHERE ri.rule_id=r.id ORDER BY x.enabled DESC,ri.node_id LIMIT 1),r.node_id) LEFT JOIN node_groups ig ON ig.id=r.ingress_group_id LEFT JOIN nodes en ON en.id=r.egress_node_id LEFT JOIN node_groups eg ON eg.id=r.egress_group_id LEFT JOIN node_tls_inbounds ti ON ti.id=r.tls_inbound_id LEFT JOIN rule_groups g ON g.id=r.group_id
  LEFT JOIN LATERAL (
   SELECT count(*) FILTER(WHERE c.compatible) AS compatible,
    count(*) FILTER(WHERE c.compatible AND c.last_seen>now()-interval '12 seconds') AS online_compatible,
@@ -405,7 +438,7 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
    count(*) FILTER(WHERE c.compatible AND c.bandwidth_ok AND c.rate=0) AS free_usable
   FROM (
    SELECT x.last_seen,n.ingress_rate+x.egress_rate AS rate,
-    (n.protocol_version>=24 AND x.protocol_version>=24
+    (n.protocol_version>=24 AND x.protocol_version>=24 AND (r.ingress_group_id IS NULL OR x.protocol_version >= $6)
      AND (n.protocol_version>=25 OR n.ingress_rate+x.egress_rate=10000)
      AND (x.tunnel_protocol<>'tls_h3' OR n.protocol_version>=28 AND x.protocol_version>=28)
      AND (x.tunnel_protocol<>'tls_h3' OR x.tls_config->'quic_padding'->>'enabled' IS DISTINCT FROM 'true' OR n.protocol_version>=29 AND x.protocol_version>=29)
@@ -413,10 +446,10 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
      AND (x.mux_config->>'enabled' IS DISTINCT FROM 'true' OR x.tunnel_protocol NOT IN ('plain_tcp','tls_tcp','random_tcp','plain_udp','dtls_udp','random_udp') OR n.protocol_version>=34 AND x.protocol_version>=34)
      AND (NOT x.brutal_enabled OR x.tunnel_protocol NOT IN ('tls_h3','plain_udp','dtls_udp','random_udp') OR n.protocol_version>=32 AND x.protocol_version>=32)) AS compatible,
     (NOT x.brutal_enabled OR x.tunnel_protocol NOT IN ('tls_h3','plain_udp','dtls_udp','random_udp') OR n.bandwidth_up_mbps>0 AND n.bandwidth_down_mbps>0 AND x.bandwidth_up_mbps>0 AND x.bandwidth_down_mbps>0) AS bandwidth_ok
-   FROM rule_outbound_routes o JOIN nodes x ON x.id=o.egress_node_id WHERE r.egress_group_id IS NOT NULL AND o.rule_id=r.id
+   FROM rule_outbound_routes o JOIN nodes x ON x.id=o.egress_node_id WHERE r.egress_group_id IS NOT NULL AND o.rule_id=r.id AND o.ingress_node_id=n.id
   ) c
  ) gc ON true
- WHERE $1 OR r.user_id=$2 ORDER BY r.id DESC`, u.IsAdmin, u.ID, len(settings.TargetDenyCIDRs) > 0, len(settings.ProxyTrustedCIDRs) == 0, pb.EncryptedTunnelVersion)
+ WHERE $1 OR r.user_id=$2 ORDER BY r.id DESC`, u.IsAdmin, u.ID, len(settings.TargetDenyCIDRs) > 0, len(settings.ProxyTrustedCIDRs) == 0, pb.EncryptedTunnelVersion, pb.MultiIngressVersion)
 	if e != nil {
 		s.dbError(w, e)
 		return
@@ -527,6 +560,7 @@ func (s *Server) applyBatch(w http.ResponseWriter, r *http.Request, in BatchInpu
 				break
 			}
 			input.NodeID = in.NodeID
+			input.IngressGroupID = 0
 			input.ListenPort = 0
 			_, e = putRule(ctx, tx, u, id, input)
 			if e != nil {
@@ -550,7 +584,7 @@ func (s *Server) applyBatch(w http.ResponseWriter, r *http.Request, in BatchInpu
 func loadRule(ctx context.Context, tx pgx.Tx, id int64) (RuleInput, error) {
 	var v RuleInput
 	var targets, trusted, sni, alpn, origin []byte
-	e := tx.QueryRow(ctx, `SELECT user_id,node_id,COALESCE(egress_node_id,0),COALESCE(egress_group_id,0),name,COALESCE(group_id,0),listen_port,targets,balance,speed_mbps,ip_limit,connection_limit,proxy_accept,proxy_send,proxy_trusted_cidrs,enabled,protocol,COALESCE(tls_inbound_id,0),sni_names,tls_alpn,origin_tls FROM rules WHERE id=$1`, id).Scan(&v.UserID, &v.NodeID, &v.EgressNodeID, &v.EgressGroupID, &v.Name, &v.GroupID, &v.ListenPort, &targets, &v.Balance, &v.SpeedMbps, &v.IPLimit, &v.ConnectionLimit, &v.ProxyAccept, &v.ProxySend, &trusted, &v.Enabled, &v.Protocol, &v.TLSInboundID, &sni, &alpn, &origin)
+	e := tx.QueryRow(ctx, `SELECT user_id,node_id,COALESCE(ingress_group_id,0),COALESCE(egress_node_id,0),COALESCE(egress_group_id,0),name,COALESCE(group_id,0),listen_port,targets,balance,speed_mbps,ip_limit,connection_limit,proxy_accept,proxy_send,proxy_trusted_cidrs,enabled,protocol,COALESCE(tls_inbound_id,0),sni_names,tls_alpn,origin_tls FROM rules WHERE id=$1`, id).Scan(&v.UserID, &v.NodeID, &v.IngressGroupID, &v.EgressNodeID, &v.EgressGroupID, &v.Name, &v.GroupID, &v.ListenPort, &targets, &v.Balance, &v.SpeedMbps, &v.IPLimit, &v.ConnectionLimit, &v.ProxyAccept, &v.ProxySend, &trusted, &v.Enabled, &v.Protocol, &v.TLSInboundID, &sni, &alpn, &origin)
 	if e == nil {
 		e = json.Unmarshal(targets, &v.Targets)
 	}
@@ -593,7 +627,7 @@ func (s *Server) importRules(w http.ResponseWriter, r *http.Request) {
 			protocols = []string{"tcp", "udp"}
 			if v.ListenPort == 0 {
 				// Pick a common port while holding the rule transaction lock.
-				err := tx.QueryRow(ctx, `SELECT p FROM nodes n CROSS JOIN LATERAL generate_series(n.port_min,n.port_max) p WHERE n.id=$1 AND NOT EXISTS(SELECT 1 FROM rule_ports rp WHERE rp.node_id=n.id AND rp.listen_port=p) ORDER BY random() LIMIT 1`, v.NodeID).Scan(&v.ListenPort)
+				err := tx.QueryRow(ctx, `WITH members AS (SELECT id,port_min,port_max,tunnel_exit_enabled,tunnel_listen_port FROM nodes WHERE ($2::bigint=0 AND id=$1) OR ($2::bigint<>0 AND ingress_enabled AND EXISTS(SELECT 1 FROM node_group_members m WHERE m.group_id=$2 AND m.node_id=nodes.id))) SELECT p FROM generate_series(80,65535) p WHERE EXISTS(SELECT 1 FROM members) AND NOT EXISTS(SELECT 1 FROM members n WHERE p NOT BETWEEN n.port_min AND n.port_max OR n.tunnel_exit_enabled AND p=n.tunnel_listen_port OR EXISTS(SELECT 1 FROM rule_ports rp WHERE rp.node_id=n.id AND rp.listen_port=p)) ORDER BY random() LIMIT 1`, v.NodeID, v.IngressGroupID).Scan(&v.ListenPort)
 				if err != nil {
 					fail(w, 400, fmt.Sprintf("第 %d 条：没有可分配的共同端口；本次导入未保存", i+1))
 					return
