@@ -1,18 +1,41 @@
 # 安装节点
 
-支持 Linux、amd64 / arm64，要求运行中的 systemd。
+支持 Linux、amd64 / arm64，要求以 root 执行且 systemd 正在运行。安装使用系统服务，不需要 Docker。
 
 ## 一键接入
 
 在后台「节点管理」创建节点，复制该节点的「安装命令」，以 root 在节点服务器执行。
 
-命令使用 `wget … -O nekopass-install-agent.sh && bash nekopass-install-agent.sh …`，参数直接包含主控 gRPC 地址与端口、节点密钥、版本和下载源。节点地址使用 `https://`（公共 CA 可信证书）或测试用 `http://`（明文 HTTP/2），不附带 CA 参数。命令可重复使用，自动判断首次安装或覆盖安装；传入的连接参数会覆盖配置文件，已有状态文件保留。
+命令使用 `wget … -O nekopass-install-agent.sh && bash nekopass-install-agent.sh …`，参数直接包含主控 gRPC 地址与端口、节点密钥、版本和下载源。节点地址使用 `https://`（公共 CA 可信证书）或测试用 `http://`（明文 HTTP/2），不附带 CA 参数。命令可重复使用，自动判断首次安装或覆盖安装；传入的连接参数会覆盖配置文件。同一节点密钥和主控主机及端口的状态会保留；更换密钥、主机或端口时会归档原状态。
 
 节点显示「在线 / 已同步」后即可使用。端口范围、入口出口和探针设置均在后台修改。
 
+## 安装过程
+
+节点安装脚本会执行以下操作：
+
+1. 检查 `curl` 和 Python 3；缺少时，通过 `apt`、`dnf` 或 `yum` 安装它们、CA 证书和基础工具。
+2. 根据服务器架构从配置的 HTTPS 下载源获取 Agent 程序，并检查程序能否运行及其版本。
+3. 创建不可登录的系统用户和服务组，安装 Agent 和更新工具，将面板地址与节点密钥写入配置文件。发布版安装脚本还会安装 `nekopassctl`。
+4. 注册并启动 Agent systemd 服务，设置开机自启。Agent 连接面板后接收转发规则、限速等运行配置。
+
+默认服务名为 `nekopass-agent`，主要文件如下：
+
+| 内容 | 默认位置 |
+| --- | --- |
+| Agent 程序和更新工具 | `/opt/nekopass/bin/` |
+| 连接地址和节点密钥 | `/etc/nekopass/agent.env` |
+| 节点状态 | `/var/lib/nekopass-agent/state.db` |
+| 服务管理命令 | `/usr/local/bin/nekopassctl` |
+| systemd 服务 | `/etc/systemd/system/nekopass-agent.service` |
+
+节点脚本不安装 PostgreSQL，也不会自动修改防火墙。请根据实际转发和隧道端口配置服务器防火墙及云安全组。更新工具通过 systemd 监听更新请求，供面板或管理命令触发；它不会定时自动升级。
+
+重新安装会停止服务并替换程序及连接配置。覆盖安装失败时脚本会尝试恢复原有安装；状态保留和归档规则见下方的「抢占实例重建」。
+
 ## 下载配置
 
-安装文件默认从 GitHub Releases 下载。在「系统设置 → 节点安装」可修改下载配置：
+安装文件默认从 GitHub Releases 下载，新仓库需要先发布对应的脚本和 Agent 程序。在「系统设置 → 节点安装」可修改下载配置：
 
 | 设置 | 示例 |
 | --- | --- |
@@ -54,7 +77,7 @@ sudo nekopassctl agent update
 
 状态文件丢失时，节点使用原密钥获取主控保存的计数并恢复上线。历史已上报流量保留，旧节点尚未结算的有限流量授权按已消耗处理。
 
-重新安装时，传入参数覆盖连接配置。更换密钥或主控地址会将原状态归档为 `state.db.before-reconfigure-*`；切换同一地址的 HTTP / HTTPS 会保留状态。
+重新安装时，传入参数覆盖连接配置。更换密钥或主控主机及端口会将原状态归档为 `state.db.before-reconfigure-*`；仅切换同一主机和端口的 HTTP / HTTPS 会保留状态。
 
 ## 主控暂时离线
 
