@@ -72,14 +72,53 @@ func prepareNodeRandom(ctx context.Context, tx pgx.Tx, id int64, input *NodeInpu
 }
 
 func appendRandomControl(ctx context.Context, tx pgx.Tx, nodeID int64, out *pb.ControlMessage) error {
+	// Retrieve only nodes whose protocol needs a random key, in one round trip.
+	// Key generation remains local and happens lazily under the existing row lock.
+	ids := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	add := func(id int64) {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	if tunnel.Random(out.Node.TunnelProtocol) || out.Node.TunnelProtocol == "dtls_udp" {
+		add(nodeID)
+	}
+	for _, rule := range out.Rules {
+		if rule.EgressNodeId != 0 && (tunnel.Random(rule.TunnelProtocol) || rule.TunnelProtocol == "dtls_udp") {
+			add(rule.EgressNodeId)
+		}
+	}
+	configs := make(map[int64][]byte, len(ids))
+	if len(ids) > 0 {
+		rows, err := tx.Query(ctx, "SELECT id,random_config FROM nodes WHERE id=ANY($1::bigint[])", ids)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var data []byte
+			if err = rows.Scan(&id, &data); err != nil {
+				rows.Close()
+				return err
+			}
+			configs[id] = data
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
 	cache := map[int64]*pb.RandomConfig{}
 	load := func(id int64) (*pb.RandomConfig, error) {
 		if cfg, ok := cache[id]; ok {
 			return cfg, nil
 		}
-		var data []byte
-		if err := tx.QueryRow(ctx, "SELECT random_config FROM nodes WHERE id=$1", id).Scan(&data); err != nil {
-			return nil, err
+		data, ok := configs[id]
+		if !ok {
+			return nil, pgx.ErrNoRows
 		}
 		cfg := defaultTunnelRandom()
 		if err := json.Unmarshal(data, &cfg); err != nil {

@@ -53,6 +53,7 @@ func (e *Engine) restoreState(c *pb.ControlMessage) error {
 		counts[v.RuleId] = v.Traffic
 	}
 	// Baselines and marker commit together before any forwarding can start.
+	e.state.mu.Lock()
 	err = e.state.db.Update(func(tx *bolt.Tx) error {
 		for id, d := range users {
 			data, err := json.Marshal(d)
@@ -70,6 +71,13 @@ func (e *Engine) restoreState(c *pb.ControlMessage) error {
 		}
 		return tx.Bucket([]byte("meta")).Delete([]byte("restore_pending"))
 	})
+	if err == nil {
+		// Restore writes these buckets directly, so discard any earlier mirrors.
+		clear(e.state.users)
+		clear(e.state.rules)
+		clear(e.state.retired)
+	}
+	e.state.mu.Unlock()
 	if err != nil {
 		return err
 	}

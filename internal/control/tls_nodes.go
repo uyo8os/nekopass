@@ -146,7 +146,45 @@ func appendTLSControl(ctx context.Context, tx pgx.Tx, nodeID int64, out *pb.Cont
 		node int64
 		mode string
 	}
+	// Fetch each exit once, rather than making a database round trip for each
+	// exit/protocol pair. Parsing stays lazy so errors retain rule order.
+	type peerTLS struct {
+		data []byte
+		root string
+	}
+	peerIDs := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	for _, rule := range out.Rules {
+		if rule.EgressNodeId != 0 {
+			if _, ok := seen[rule.EgressNodeId]; !ok {
+				seen[rule.EgressNodeId] = struct{}{}
+				peerIDs = append(peerIDs, rule.EgressNodeId)
+			}
+		}
+	}
+	peers := make(map[int64]peerTLS, len(peerIDs))
+	if len(peerIDs) > 0 {
+		rows, err = tx.Query(ctx, "SELECT id,tls_config,tls_ca FROM nodes WHERE id=ANY($1::bigint[])", peerIDs)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var peer peerTLS
+			if err = rows.Scan(&id, &peer.data, &peer.root); err != nil {
+				rows.Close()
+				return err
+			}
+			peers[id] = peer
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
 	cache := map[peerKey]*pb.TLSClientConfig{}
+	ports := map[int64]int{}
 	for _, rule := range out.Rules {
 		if rule.EgressNodeId == 0 {
 			continue
@@ -154,13 +192,12 @@ func appendTLSControl(ctx context.Context, tx pgx.Tx, nodeID int64, out *pb.Cont
 		key := peerKey{rule.EgressNodeId, rule.TunnelProtocol}
 		settings := cache[key]
 		if settings == nil {
-			var cfgData []byte
-			var root string
-			if err = tx.QueryRow(ctx, "SELECT tls_config,tls_ca FROM nodes WHERE id=$1", rule.EgressNodeId).Scan(&cfgData, &root); err != nil {
-				return err
+			peer, ok := peers[rule.EgressNodeId]
+			if !ok {
+				return pgx.ErrNoRows
 			}
 			exit := DefaultTunnelTLS()
-			if err = json.Unmarshal(cfgData, &exit); err != nil {
+			if err = json.Unmarshal(peer.data, &exit); err != nil {
 				return err
 			}
 			if err = exit.normalize(); err != nil {
@@ -176,7 +213,7 @@ func appendTLSControl(ctx context.Context, tx pgx.Tx, nodeID int64, out *pb.Cont
 			}
 			// Transport options belong to the selected exit. A dual-role node's
 			// own exit configuration must not affect its connections to other exits.
-			settings = &pb.TLSClientConfig{QuicPadding: exit.QUICPadding.Proto(tunnel.H3(rule.TunnelProtocol)), PaddingEnabled: rule.TunnelProtocol == "tls_tcp" && exit.PaddingEnabled, PaddingScheme: exit.PaddingScheme, ServerName: sni, Fingerprint: exit.Fingerprint, RootCa: root, Path: exit.Path, Host: host, RequireResponseProof: true, PoolSize: int32(exit.PoolSize), MaxStreams: int32(exit.MaxStreams), StreamWindowMib: int32(exit.StreamWindowMiB), ConnectionWindowMib: int32(exit.ConnectionWindowMiB)}
+			settings = &pb.TLSClientConfig{QuicPadding: exit.QUICPadding.Proto(tunnel.H3(rule.TunnelProtocol)), PaddingEnabled: rule.TunnelProtocol == "tls_tcp" && exit.PaddingEnabled, PaddingScheme: exit.PaddingScheme, ServerName: sni, Fingerprint: exit.Fingerprint, RootCa: peer.root, Path: exit.Path, Host: host, RequireResponseProof: true, PoolSize: int32(exit.PoolSize), MaxStreams: int32(exit.MaxStreams), StreamWindowMib: int32(exit.StreamWindowMiB), ConnectionWindowMib: int32(exit.ConnectionWindowMiB)}
 			if !tunnel.TLS(rule.TunnelProtocol) {
 				settings.RootCa = ""
 				settings.ServerName = ""
@@ -187,13 +224,10 @@ func appendTLSControl(ctx context.Context, tx pgx.Tx, nodeID int64, out *pb.Cont
 				settings.Fingerprint = "off"
 			}
 			cache[key] = settings
-			if exit.PublicPort != 0 {
-				for _, candidate := range out.Rules {
-					if candidate.EgressNodeId == rule.EgressNodeId {
-						candidate.TunnelPort = int32(exit.PublicPort)
-					}
-				}
-			}
+			ports[rule.EgressNodeId] = exit.PublicPort
+		}
+		if port := ports[rule.EgressNodeId]; port != 0 {
+			rule.TunnelPort = int32(port)
 		}
 		rule.Tls = settings
 		if !tunnel.TLS(rule.TunnelProtocol) && !tunnel.H2(rule.TunnelProtocol) && !tunnel.UDP(rule.TunnelProtocol) && !tunnel.Random(rule.TunnelProtocol) {

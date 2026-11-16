@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -215,63 +214,11 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 			return nil, e
 		}
 	}
-	for _, u := range r.Usage {
-		charged := u.Traffic
-		if r.ProtocolVersion >= 25 {
-			charged = u.ChargedBytes
-		}
-		if u.QuotaEpoch < 0 || u.Spent < 0 || u.Released < 0 || u.Traffic < 0 || u.UnlimitedSpent < 0 || u.Spent > math.MaxInt64-u.UnlimitedSpent || charged < 0 || charged > u.Spent+u.UnlimitedSpent {
-			return nil, errors.New("invalid usage counters")
-		}
-		var issued, spent, released, traffic, unlimitedSpent, previousCharged int64
-		var unlimitedOpen bool
-		e = tx.QueryRow(ctx, "SELECT issued,spent,released,traffic,unlimited_spent,unlimited_open,charged_bytes FROM grants WHERE node_id=$1 AND user_id=$2 AND quota_epoch=$3 FOR UPDATE", nodeID, u.UserId, u.QuotaEpoch).Scan(&issued, &spent, &released, &traffic, &unlimitedSpent, &unlimitedOpen, &previousCharged)
-		if errors.Is(e, pgx.ErrNoRows) && u.Spent == 0 && u.Released == 0 && u.Traffic == 0 && u.UnlimitedSpent == 0 {
-			continue
-		}
-		if e != nil {
-			return nil, e
-		}
-		if u.UnlimitedSpent < unlimitedSpent || (u.UnlimitedSpent > unlimitedSpent && !unlimitedOpen) || u.Spent < spent || u.Released < released || u.Traffic < traffic || charged < previousCharged || u.Spent > issued || u.Released > issued-u.Spent {
-			return nil, errors.New("usage counters regressed or exceeded grant; retain the original agent state")
-		}
-		// Agents repeatedly send cumulative counters until acknowledgement. A
-		// replay must still be validated and acknowledged, but rewriting the same
-		// grant each heartbeat only creates dead tuples and WAL. Closing an open
-		// unlimited grant is itself a change, even if all counters are unchanged.
-		if u.Spent != spent || u.Released != released || u.Traffic != traffic || u.UnlimitedSpent != unlimitedSpent || charged != previousCharged || (unlimitedOpen && !u.QuotaUnlimited) {
-			_, e = tx.Exec(ctx, "UPDATE grants SET spent=$3,released=$4,traffic=$5,unlimited_spent=$6,unlimited_open=unlimited_open AND $7,charged_bytes=$9 WHERE node_id=$1 AND user_id=$2 AND quota_epoch=$8", nodeID, u.UserId, u.Spent, u.Released, u.Traffic, u.UnlimitedSpent, u.QuotaUnlimited, u.QuotaEpoch, charged)
-			if e != nil {
-				return nil, e
-			}
-		}
-		if u.Traffic > traffic {
-			_, e = tx.Exec(ctx, "INSERT INTO usage_events(node_id,user_id,traffic_bytes) VALUES($1,$2,$3)", nodeID, u.UserId, u.Traffic-traffic)
-			if e != nil {
-				return nil, e
-			}
-		}
+	if e = applyUsageBatch(ctx, tx, nodeID, r.ProtocolVersion, r.Usage); e != nil {
+		return nil, e
 	}
-	for _, u := range r.RuleUsage {
-		if u.Traffic < 0 {
-			return nil, errors.New("negative rule usage")
-		}
-		var before, owner int64
-		e = tx.QueryRow(ctx, "SELECT traffic,user_id FROM rule_usage WHERE node_id=$1 AND rule_id=$2 FOR UPDATE", nodeID, u.RuleId).Scan(&before, &owner)
-		if errors.Is(e, pgx.ErrNoRows) {
-			continue
-		}
-		if e != nil {
-			return nil, e
-		}
-		if u.Traffic > before {
-			if _, e = tx.Exec(ctx, "UPDATE rule_usage SET traffic=$3 WHERE node_id=$1 AND rule_id=$2", nodeID, u.RuleId, u.Traffic); e != nil {
-				return nil, e
-			}
-			if _, e = tx.Exec(ctx, "INSERT INTO rule_events(node_id,rule_id,user_id,traffic_bytes) VALUES($1,$2,$3,$4)", nodeID, u.RuleId, owner, u.Traffic-before); e != nil {
-				return nil, e
-			}
-		}
+	if e = applyRuleUsageBatch(ctx, tx, nodeID, r.RuleUsage); e != nil {
+		return nil, e
 	}
 	// Every allocator locks the user row first. Concurrent nodes cannot over-allocate its quota.
 	sort.Slice(r.RequestUsers, func(i, j int) bool { return r.RequestUsers[i] < r.RequestUsers[j] })
@@ -457,7 +404,7 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 		if e != nil {
 			return nil, e
 		}
-		rows, e = tx.Query(ctx, `SELECT r.id,outbound.ingress_node_id,r.targets,r.user_id,u.quota_epoch,COALESCE(extract(epoch FROM LEAST(u.expires_at,u.next_reset_at))::bigint,0),r.protocol FROM rules r JOIN user_entitlements u ON u.id=r.user_id JOIN rule_outbound_routes outbound ON outbound.rule_id=r.id JOIN user_nodes ingress ON ingress.user_id=r.user_id AND ingress.node_id=outbound.ingress_node_id LEFT JOIN node_groups ig ON ig.id=r.ingress_group_id LEFT JOIN user_node_groups iug ON iug.group_id=r.ingress_group_id AND iug.user_id=r.user_id WHERE outbound.egress_node_id=$1 AND (r.ingress_group_id IS NULL OR ig.enabled AND iug.user_id IS NOT NULL AND $2::integer >= $3::integer) AND EXISTS(SELECT 1 FROM nodes source WHERE source.id=outbound.ingress_node_id AND source.ingress_enabled) AND r.enabled AND u.enabled AND (u.expires_at IS NULL OR u.expires_at>now()) ORDER BY r.id,outbound.ingress_node_id`, nodeID, r.ProtocolVersion, pb.MultiIngressVersion)
+		rows, e = tx.Query(ctx, nodeEgressRulesSQL, nodeID, r.ProtocolVersion, pb.MultiIngressVersion)
 		if e != nil {
 			return nil, e
 		}
@@ -513,16 +460,46 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 		out.Node.TlsInbounds = nil
 	}
 
+	// Resolve all distinct exit capabilities in one round trip. Group rules may
+	// expand into many drafts, so querying once per exit adds work every heartbeat.
 	tlsVersions := map[int64]int{}
+	var exitNodeIDs []int64
 	for _, rule := range out.Rules {
 		if rule.EgressNodeId != 0 {
-			version, known := tlsVersions[rule.EgressNodeId]
-			if !known {
-				if e = tx.QueryRow(ctx, "SELECT protocol_version FROM nodes WHERE id=$1", rule.EgressNodeId).Scan(&version); e != nil {
-					return nil, e
-				}
-				tlsVersions[rule.EgressNodeId] = version
+			if _, exists := tlsVersions[rule.EgressNodeId]; !exists {
+				tlsVersions[rule.EgressNodeId] = 0
+				exitNodeIDs = append(exitNodeIDs, rule.EgressNodeId)
 			}
+		}
+	}
+	if len(exitNodeIDs) > 0 {
+		rows, e = tx.Query(ctx, "SELECT id,protocol_version FROM nodes WHERE id=ANY($1::bigint[])", exitNodeIDs)
+		if e != nil {
+			return nil, e
+		}
+		found := 0
+		for rows.Next() {
+			var id int64
+			var version int
+			if e = rows.Scan(&id, &version); e != nil {
+				rows.Close()
+				return nil, e
+			}
+			tlsVersions[id] = version
+			found++
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return nil, e
+		}
+		if found != len(exitNodeIDs) {
+			return nil, pgx.ErrNoRows
+		}
+	}
+	for _, rule := range out.Rules {
+		if rule.EgressNodeId != 0 {
+			version := tlsVersions[rule.EgressNodeId]
 			if rule.Protocol != "tcp" && version < 16 {
 				rule.Enabled = false
 			}

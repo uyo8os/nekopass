@@ -30,6 +30,31 @@ func peerKey(r *pb.Rule) string {
 	return fmt.Sprint(r.EgressNodeId) + "/" + r.TunnelToken + "/" + h2PoolKey(r)
 }
 
+// peerKeyCache is scoped to a single update. Rules in the same group often
+// repeat the same peer configuration, but have distinct protobuf instances.
+// Keep this comparison in sync with peerKey and h2PoolKey: the scalar fields
+// and all nested messages used by those functions must be compared here.
+type peerKeyFields struct {
+	ingress, egress       int64
+	host, token, protocol string
+	port                  int32
+}
+type peerKeyEntry struct {
+	rule *pb.Rule
+	key  string
+}
+type peerKeyCache map[peerKeyFields]peerKeyEntry
+
+func (cache peerKeyCache) key(r *pb.Rule) string {
+	fields := peerKeyFields{r.IngressNodeId, r.EgressNodeId, r.TunnelHost, r.TunnelToken, r.TunnelProtocol, r.TunnelPort}
+	if entry, ok := cache[fields]; ok && proto.Equal(entry.rule.Tls, r.Tls) && proto.Equal(entry.rule.Random, r.Random) && proto.Equal(entry.rule.Congestion, r.Congestion) && proto.Equal(entry.rule.Mux, r.Mux) {
+		return entry.key
+	}
+	key := peerKey(r)
+	cache[fields] = peerKeyEntry{rule: r, key: key}
+	return key
+}
+
 type egressHealth struct {
 	rule                *pb.Rule
 	active              int64
@@ -79,6 +104,7 @@ func (m *egressManager) update(rules []*pb.Rule) {
 	representatives := map[string]*pb.Rule{}
 	groups := map[string]bool{}
 	prepared := map[*pb.Rule][]egressCandidate{}
+	keys := peerKeyCache{}
 	for _, r := range rules {
 		if !r.Enabled || r.EgressGroupId == 0 {
 			continue
@@ -93,7 +119,7 @@ func (m *egressManager) update(rules []*pb.Rule) {
 		s.successes = int(max(1, r.HealthSuccesses))
 		for _, p := range r.EgressPeers {
 			v := peerRule(r, p)
-			key := peerKey(v)
+			key := keys.key(v)
 			if s.health[key] == nil {
 				s.health[key] = &groupHealth{}
 			}
