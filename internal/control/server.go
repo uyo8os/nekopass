@@ -57,6 +57,7 @@ type Server struct {
 	settingsMu      sync.Mutex
 	agentListener   *agentListener
 	diagnostics     diagnosticRegistry
+	nodeLocks       nodeLockManager
 }
 type loginBucket struct {
 	limiter *rate.Limiter

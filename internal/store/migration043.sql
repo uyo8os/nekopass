@@ -11,6 +11,8 @@ CREATE VIEW rule_ingress_nodes AS
  JOIN nodes n ON n.id=m.node_id AND n.ingress_enabled;
 
 -- Append ingress_node_id so existing consumers can migrate independently.
+-- Keep ruleListSQL in internal/control/rules.go and its route equivalence test
+-- synchronized when this view's authorization or candidate semantics change.
 CREATE OR REPLACE VIEW rule_outbound_routes AS
  SELECT r.id AS rule_id,n.id AS egress_node_id,1 AS weight,'active'::text AS role,i.node_id AS ingress_node_id
  FROM rules r JOIN rule_ingress_nodes i ON i.rule_id=r.id

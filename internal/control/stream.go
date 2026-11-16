@@ -39,27 +39,40 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 	if e != nil {
 		return status.Error(codes.Unauthenticated, "invalid node token")
 	}
-	// A node holds its advisory lock on a dedicated session, not an API pool slot.
-	// Long-lived streams must never exhaust the query pool and block login/config updates.
-	conn, e := pgx.ConnectConfig(ctx, s.Server.Pool.Config().ConnConfig.Copy())
-	if e != nil {
-		return e
-	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = conn.Close(closeCtx)
-	}()
-	var locked bool
-	e = conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", -node.ID).Scan(&locked)
-	if e != nil {
-		return e
-	}
-	if !locked {
+	lock, e := s.Server.nodeLocks.acquire(ctx, s.Server.Pool, node.ID)
+	if errors.Is(e, errNodeAlreadyConnected) {
 		return status.Error(codes.AlreadyExists, "node already connected")
 	}
+	if e != nil {
+		return e
+	}
+	defer lock.release()
+	exchangeCtx, cancelExchange := context.WithCancel(ctx)
+	defer cancelExchange()
+	go func() {
+		select {
+		case <-lock.done:
+			cancelExchange()
+		case <-exchangeCtx.Done():
+		}
+	}()
 	for {
-		report, e := stream.Recv()
+		// Unblock a stream waiting for a report if the shared lock carrier dies.
+		type incoming struct {
+			report *pb.AgentMessage
+			err    error
+		}
+		received := make(chan incoming, 1)
+		go func() { report, err := stream.Recv(); received <- incoming{report, err} }()
+		var report *pb.AgentMessage
+		select {
+		case <-lock.done:
+			return status.Error(codes.Unavailable, "node stream lock lost")
+		case <-ctx.Done():
+			return ctx.Err()
+		case in := <-received:
+			report, e = in.report, in.err
+		}
 		if e != nil {
 			return e
 		}
@@ -69,8 +82,13 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 || len(report.DiagnosticResults) > 256 {
 			return status.Error(codes.InvalidArgument, "invalid report")
 		}
-		result, e := s.exchangeWithCredential(ctx, conn, node.ID, report, Hash(presentedToken))
+		result, e := s.exchangeWithLock(exchangeCtx, s.Server.Pool, node.ID, report, Hash(presentedToken), lock)
 		if e != nil {
+			select {
+			case <-lock.done:
+				return status.Error(codes.Unavailable, "node stream lock lost")
+			default:
+			}
 			return status.Error(codes.FailedPrecondition, publicOperationError(e))
 		}
 		if report.ProtocolVersion >= 12 {
@@ -83,8 +101,17 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if proto.Size(result) > MaxControlMessageBytes {
 			return status.Error(codes.ResourceExhausted, "node configuration exceeds 16 MiB; reduce rules or egress group size")
 		}
-		if e = stream.Send(result); e != nil {
-			return e
+		sent := make(chan error, 1)
+		go func() { sent <- stream.Send(result) }()
+		select {
+		case <-lock.done:
+			return status.Error(codes.Unavailable, "node stream lock lost")
+		case <-ctx.Done():
+			return ctx.Err()
+		case e = <-sent:
+			if e != nil {
+				return e
+			}
 		}
 	}
 }
@@ -110,6 +137,12 @@ func configureControlPlanner(ctx context.Context, tx pgx.Tx) error {
 func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interface {
 	Begin(context.Context) (pgx.Tx, error)
 }, nodeID int64, r *pb.AgentMessage, expectedHash string) (*pb.ControlMessage, error) {
+	return s.exchangeWithLock(ctx, conn, nodeID, r, expectedHash, nil)
+}
+
+func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
+	Begin(context.Context) (pgx.Tx, error)
+}, nodeID int64, r *pb.AgentMessage, expectedHash string, lock *nodeStreamLock) (*pb.ControlMessage, error) {
 	tx, e := conn.Begin(ctx)
 	if e != nil {
 		return nil, e
@@ -123,6 +156,11 @@ func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interfac
 	e = tx.QueryRow(ctx, "SELECT instance_id,token_hash,protocol_version FROM nodes WHERE id=$1 FOR UPDATE", nodeID).Scan(&instance, &currentHash, &previousProtocolVersion)
 	if e != nil {
 		return nil, e
+	}
+	if lock != nil {
+		if e = lock.validate(ctx, tx); e != nil {
+			return nil, e
+		}
 	}
 	if expectedHash != "" && expectedHash != currentHash {
 		return nil, errors.New("node token changed; update Agent configuration before reconnecting")
@@ -197,9 +235,15 @@ func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interfac
 		if u.UnlimitedSpent < unlimitedSpent || (u.UnlimitedSpent > unlimitedSpent && !unlimitedOpen) || u.Spent < spent || u.Released < released || u.Traffic < traffic || charged < previousCharged || u.Spent > issued || u.Released > issued-u.Spent {
 			return nil, errors.New("usage counters regressed or exceeded grant; retain the original agent state")
 		}
-		_, e = tx.Exec(ctx, "UPDATE grants SET spent=$3,released=$4,traffic=$5,unlimited_spent=$6,unlimited_open=unlimited_open AND $7,charged_bytes=$9 WHERE node_id=$1 AND user_id=$2 AND quota_epoch=$8", nodeID, u.UserId, u.Spent, u.Released, u.Traffic, u.UnlimitedSpent, u.QuotaUnlimited, u.QuotaEpoch, charged)
-		if e != nil {
-			return nil, e
+		// Agents repeatedly send cumulative counters until acknowledgement. A
+		// replay must still be validated and acknowledged, but rewriting the same
+		// grant each heartbeat only creates dead tuples and WAL. Closing an open
+		// unlimited grant is itself a change, even if all counters are unchanged.
+		if u.Spent != spent || u.Released != released || u.Traffic != traffic || u.UnlimitedSpent != unlimitedSpent || charged != previousCharged || (unlimitedOpen && !u.QuotaUnlimited) {
+			_, e = tx.Exec(ctx, "UPDATE grants SET spent=$3,released=$4,traffic=$5,unlimited_spent=$6,unlimited_open=unlimited_open AND $7,charged_bytes=$9 WHERE node_id=$1 AND user_id=$2 AND quota_epoch=$8", nodeID, u.UserId, u.Spent, u.Released, u.Traffic, u.UnlimitedSpent, u.QuotaUnlimited, u.QuotaEpoch, charged)
+			if e != nil {
+				return nil, e
+			}
 		}
 		if u.Traffic > traffic {
 			_, e = tx.Exec(ctx, "INSERT INTO usage_events(node_id,user_id,traffic_bytes) VALUES($1,$2,$3)", nodeID, u.UserId, u.Traffic-traffic)

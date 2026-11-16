@@ -418,35 +418,20 @@ func (s *Server) beginRuleListTx(ctx context.Context) (pgx.Tx, error) {
 	return tx, nil
 }
 
-func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
-	u := ruleActor(r)
-	settings, e := s.readSettings(r.Context())
-	if e != nil {
-		s.dbError(w, e)
-		return
-	}
-	// Planning this many joins can retain excessive memory in a PostgreSQL
-	// backend, and JIT can add more. Limit join reordering and disable JIT only
-	// for this read-only transaction; SET LOCAL resets both settings afterward.
-	tx, e := s.beginRuleListTx(r.Context())
-	if e != nil {
-		s.dbError(w, e)
-		return
-	}
-	// The request context may be canceled while streaming. Use a live context
-	// for cleanup so a canceled client cannot leave a transaction in the pool.
-	defer rollbackRuleListTx(tx)
-	rows, e := tx.Query(r.Context(), `SELECT r.id,r.user_id,r.node_id,COALESCE(r.ingress_group_id,0) AS ingress_group_id,COALESCE(ig.name,'') AS ingress_group_name,COALESCE(ig.connection_address,'') AS ingress_connection_address,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'name',x.name,'public_address',x.public_address,'enabled',x.enabled,'online',COALESCE(x.enabled AND x.last_seen>now()-interval '12 seconds',false),'status',CASE WHEN NOT x.enabled THEN 'disabled' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups zug WHERE zug.user_id=r.user_id AND zug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=x.id) THEN 'unauthorized' WHEN r.egress_node_id IS NULL AND r.egress_group_id IS NULL AND NOT x.allow_direct THEN 'unauthorized' WHEN (r.egress_node_id IS NOT NULL OR r.egress_group_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes zo WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND r.egress_node_id IS NOT NULL AND COALESCE((SELECT protocol_version FROM nodes WHERE id=r.egress_node_id),0)<$6 THEN 'upgrade_required' WHEN r.ingress_group_id IS NOT NULL AND r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes zo JOIN nodes zx ON zx.id=zo.egress_node_id WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id AND zx.protocol_version >= $6) THEN 'upgrade_required' WHEN x.last_seen IS NULL OR x.last_seen<now()-interval '12 seconds' THEN 'offline' WHEN x.sync_error<>'' THEN 'failed' WHEN x.applied_revision<r.config_revision THEN 'pending' ELSE 'active' END,'sync_error',x.sync_error,'applied_revision',x.applied_revision,'config_revision',r.config_revision) ORDER BY x.id) FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id WHERE ri.rule_id=r.id),'[]') AS ingress_nodes,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,u.rule_speed_bps/125000 AS speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
+// ruleListSQL computes each rule’s eligible routes once and reuses them.
+// Its list_routes CTE must match rule_outbound_routes (migration043.sql);
+// TestRuleListRouteAndResponseEquivalent checks both route sets and responses.
+const ruleListSQL = `SELECT r.id,r.user_id,r.node_id,COALESCE(r.ingress_group_id,0) AS ingress_group_id,COALESCE(ig.name,'') AS ingress_group_name,COALESCE(ig.connection_address,'') AS ingress_connection_address,details.ingress_nodes AS ingress_nodes,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,u.rule_speed_bps/125000 AS speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
  COALESCE(g.name,'') AS group_name,GREATEST(COALESCE((SELECT sum(t.traffic) FROM all_rule_usage t WHERE t.rule_id=r.id),0)::bigint-r.traffic_baseline,0) AS traffic_bytes,
  CASE WHEN NOT r.enabled THEN 'disabled' WHEN NOT u.account_enabled THEN 'user_disabled' WHEN u.plan_id IS NULL THEN 'no_plan' WHEN NOT u.plan_enabled THEN 'plan_disabled' WHEN u.expires_at<=now() THEN 'expired' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups ug WHERE ug.user_id=r.user_id AND ug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id AND x.enabled WHERE ri.rule_id=r.id) THEN 'offline' WHEN NOT n.ingress_enabled OR NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=n.id) OR (r.egress_node_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=r.egress_node_id)) THEN 'unauthorized'
- WHEN r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_outbound_routes o WHERE o.rule_id=r.id AND o.ingress_node_id=n.id) THEN 'unauthorized'
+ WHEN r.egress_group_id IS NOT NULL AND NOT details.anchor_has_route THEN 'unauthorized'
  WHEN r.ingress_group_id IS NOT NULL AND r.egress_node_id IS NOT NULL AND en.protocol_version<$6 THEN 'upgrade_required'
  WHEN r.egress_group_id IS NOT NULL AND n.protocol_version<24 THEN 'upgrade_required'
- WHEN r.egress_group_id IS NOT NULL AND gc.compatible=0 THEN 'upgrade_required'
- WHEN r.egress_group_id IS NOT NULL AND gc.usable=0 AND gc.online_compatible>0 THEN 'bandwidth_required'
+ WHEN r.egress_group_id IS NOT NULL AND details.compatible=0 THEN 'upgrade_required'
+ WHEN r.egress_group_id IS NOT NULL AND details.usable=0 AND details.online_compatible>0 THEN 'bandwidth_required'
  WHEN n.protocol_version<25 AND r.egress_group_id IS NULL AND n.ingress_rate+COALESCE(en.egress_rate,0)<>10000 THEN 'upgrade_required'
- WHEN u.quota_bytes>=0 AND (r.egress_group_id IS NULL AND n.ingress_rate+COALESCE(en.egress_rate,0)>0 OR r.egress_group_id IS NOT NULL AND gc.free_usable=0) AND (u.quota_bytes<=u.traffic_base_bytes+COALESCE((SELECT sum(charged_bytes) FROM current_grants WHERE user_id=u.id),0) OR u.quota_bytes<u.traffic_base_bytes+COALESCE((SELECT sum(issued-released+unlimited_spent) FROM current_grants WHERE user_id=u.id),0)) THEN 'quota_exhausted'
- WHEN r.egress_group_id IS NOT NULL AND gc.online_usable=0 THEN 'offline'
+ WHEN u.quota_bytes>=0 AND (r.egress_group_id IS NULL AND n.ingress_rate+COALESCE(en.egress_rate,0)>0 OR r.egress_group_id IS NOT NULL AND details.free_usable=0) AND (u.quota_bytes<=u.traffic_base_bytes+COALESCE((SELECT sum(charged_bytes) FROM current_grants WHERE user_id=u.id),0) OR u.quota_bytes<u.traffic_base_bytes+COALESCE((SELECT sum(issued-released+unlimited_spent) FROM current_grants WHERE user_id=u.id),0)) THEN 'quota_exhausted'
+ WHEN r.egress_group_id IS NOT NULL AND details.online_usable=0 THEN 'offline'
 	 WHEN n.last_seen IS NULL OR n.last_seen<now()-interval '12 seconds' OR (en.id IS NOT NULL AND (en.last_seen IS NULL OR en.last_seen<now()-interval '12 seconds')) THEN 'offline'
 	 WHEN $3 AND (n.protocol_version<14 OR (en.id IS NOT NULL AND en.protocol_version<14)) THEN 'upgrade_required'
  WHEN (r.tls_inbound_id IS NOT NULL AND n.protocol_version<21) OR (r.origin_tls->>'enabled'='true' AND n.protocol_version<20) THEN 'upgrade_required'
@@ -470,6 +455,30 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	 WHEN n.sync_error<>'' OR COALESCE(en.sync_error,'')<>'' THEN 'failed' WHEN n.applied_revision<r.config_revision OR (en.id IS NOT NULL AND en.applied_revision<r.config_revision) THEN 'pending' ELSE 'active' END AS status
 	 FROM rules r JOIN user_entitlements u ON u.id=r.user_id JOIN nodes n ON n.id=COALESCE((SELECT ri.node_id FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id WHERE ri.rule_id=r.id ORDER BY x.enabled DESC,ri.node_id LIMIT 1),r.node_id) LEFT JOIN node_groups ig ON ig.id=r.ingress_group_id LEFT JOIN nodes en ON en.id=r.egress_node_id LEFT JOIN node_groups eg ON eg.id=r.egress_group_id LEFT JOIN node_tls_inbounds ti ON ti.id=r.tls_inbound_id LEFT JOIN rule_groups g ON g.id=r.group_id
  LEFT JOIN LATERAL (
+  -- Compute the eligible routes once per rule. The former query expanded the
+  -- deeply nested route view independently for each status and member check.
+  WITH list_routes AS MATERIALIZED (
+   SELECT r.id AS rule_id,i.node_id AS ingress_node_id,x.id AS egress_node_id
+   FROM rule_ingress_nodes i
+   JOIN LATERAL (
+    SELECT x.id,x.tunnel_protocol FROM nodes x
+     WHERE x.id=r.egress_node_id AND x.enabled AND x.tunnel_exit_enabled
+    UNION ALL
+    SELECT x.id,x.tunnel_protocol FROM user_node_groups ug
+     JOIN node_groups g ON g.id=ug.group_id AND g.enabled
+     JOIN node_group_members m ON m.group_id=g.id AND m.role<>'disabled'
+     JOIN nodes x ON x.id=m.node_id AND x.enabled AND x.tunnel_exit_enabled
+     WHERE ug.user_id=r.user_id AND ug.group_id=r.egress_group_id
+   ) x ON true
+   JOIN node_tunnel_links l ON l.ingress_node_id=i.node_id AND l.egress_node_id=x.id
+   JOIN user_nodes a ON a.user_id=r.user_id AND a.node_id=x.id
+   WHERE i.rule_id=r.id AND x.id<>i.node_id
+    AND (r.protocol='udp' OR x.tunnel_protocol NOT IN ('plain_udp','dtls_udp','random_udp'))
+  )
+  SELECT COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'name',x.name,'public_address',x.public_address,'enabled',x.enabled,'online',COALESCE(x.enabled AND x.last_seen>now()-interval '12 seconds',false),'status',CASE WHEN NOT x.enabled THEN 'disabled' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups zug WHERE zug.user_id=r.user_id AND zug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=x.id) THEN 'unauthorized' WHEN r.egress_node_id IS NULL AND r.egress_group_id IS NULL AND NOT x.allow_direct THEN 'unauthorized' WHEN (r.egress_node_id IS NOT NULL OR r.egress_group_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM list_routes zo WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND r.egress_node_id IS NOT NULL AND COALESCE((SELECT protocol_version FROM nodes WHERE id=r.egress_node_id),0)<$6 THEN 'upgrade_required' WHEN r.ingress_group_id IS NOT NULL AND r.egress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM list_routes zo JOIN nodes zx ON zx.id=zo.egress_node_id WHERE zo.rule_id=r.id AND zo.ingress_node_id=x.id AND zx.protocol_version >= $6) THEN 'upgrade_required' WHEN x.last_seen IS NULL OR x.last_seen<now()-interval '12 seconds' THEN 'offline' WHEN x.sync_error<>'' THEN 'failed' WHEN x.applied_revision<r.config_revision THEN 'pending' ELSE 'active' END,'sync_error',x.sync_error,'applied_revision',x.applied_revision,'config_revision',r.config_revision) ORDER BY x.id) FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id WHERE ri.rule_id=r.id),'[]') AS ingress_nodes,
+   EXISTS(SELECT 1 FROM list_routes o WHERE o.ingress_node_id=n.id) AS anchor_has_route,
+   gc.*
+  FROM LATERAL (
   SELECT count(*) FILTER(WHERE c.compatible) AS compatible,
    count(*) FILTER(WHERE c.compatible AND c.last_seen>now()-interval '12 seconds') AS online_compatible,
    count(*) FILTER(WHERE c.compatible AND c.bandwidth_ok) AS usable,
@@ -485,10 +494,31 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
      AND (x.mux_config->>'enabled' IS DISTINCT FROM 'true' OR x.tunnel_protocol NOT IN ('plain_tcp','tls_tcp','random_tcp','plain_udp','dtls_udp','random_udp') OR n.protocol_version>=34 AND x.protocol_version>=34)
      AND (NOT x.brutal_enabled OR x.tunnel_protocol NOT IN ('tls_h3','plain_udp','dtls_udp','random_udp') OR n.protocol_version>=32 AND x.protocol_version>=32)) AS compatible,
     (NOT x.brutal_enabled OR x.tunnel_protocol NOT IN ('tls_h3','plain_udp','dtls_udp','random_udp') OR n.bandwidth_up_mbps>0 AND n.bandwidth_down_mbps>0 AND x.bandwidth_up_mbps>0 AND x.bandwidth_down_mbps>0) AS bandwidth_ok
-   FROM rule_outbound_routes o JOIN nodes x ON x.id=o.egress_node_id WHERE r.egress_group_id IS NOT NULL AND o.rule_id=r.id AND o.ingress_node_id=n.id
+   FROM list_routes o JOIN nodes x ON x.id=o.egress_node_id WHERE r.egress_group_id IS NOT NULL AND o.rule_id=r.id AND o.ingress_node_id=n.id
   ) c
- ) gc ON true
- WHERE $1 OR r.user_id=$2 ORDER BY r.id DESC`, u.IsAdmin, u.ID, len(settings.TargetDenyCIDRs) > 0, len(settings.ProxyTrustedCIDRs) == 0, pb.EncryptedTunnelVersion, pb.MultiIngressVersion)
+ ) gc
+ ) details ON true
+ WHERE $1 OR r.user_id=$2 ORDER BY r.id DESC`
+
+func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
+	u := ruleActor(r)
+	settings, e := s.readSettings(r.Context())
+	if e != nil {
+		s.dbError(w, e)
+		return
+	}
+	// Planning this many joins can retain excessive memory in a PostgreSQL
+	// backend, and JIT can add more. Limit join reordering and disable JIT only
+	// for this read-only transaction; SET LOCAL resets both settings afterward.
+	tx, e := s.beginRuleListTx(r.Context())
+	if e != nil {
+		s.dbError(w, e)
+		return
+	}
+	// The request context may be canceled while streaming. Use a live context
+	// for cleanup so a canceled client cannot leave a transaction in the pool.
+	defer rollbackRuleListTx(tx)
+	rows, e := tx.Query(r.Context(), ruleListSQL, u.IsAdmin, u.ID, len(settings.TargetDenyCIDRs) > 0, len(settings.ProxyTrustedCIDRs) == 0, pb.EncryptedTunnelVersion, pb.MultiIngressVersion)
 	if e != nil {
 		s.dbError(w, e)
 		return
