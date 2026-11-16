@@ -16,6 +16,7 @@ $updaterText = [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/nekopass-upd
 $updaterPayload = "write_updater_payload() {`ncat <<'NEKOPASS_UPDATER_PAYLOAD'`n" + $updaterText.TrimEnd() + "`nNEKOPASS_UPDATER_PAYLOAD`n}`n"
 $installerText = $installerText.Replace('# PACKAGED_MANAGER', $managerPayload).Replace('# PACKAGED_UPDATER', $updaterPayload).Replace('v0.19.4', $Version)
 [IO.File]::WriteAllText($installerPath, $installerText, $utf8)
+[IO.File]::WriteAllText((Join-Path $assetRoot 'uninstall-agent.sh'), [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/uninstall-agent.sh')).Replace("`r`n", "`n"), $utf8)
 [IO.File]::WriteAllText((Join-Path $assetRoot 'nekopassctl.sh'), $managerText, $utf8)
 [IO.File]::WriteAllText((Join-Path $assetRoot 'nekopass-update.py'), $updaterText, $utf8)
 $previousOS = $env:GOOS
@@ -51,6 +52,7 @@ try {
 Upload these files preserving the paths relative to dist/oss:
 
 - nekopass/install-agent.sh
+- nekopass/uninstall-agent.sh
 - nekopass/nekopassctl.sh (optional standalone service manager; also embedded in the installer)
 - nekopass/releases/$Version/nekopass-agent-linux-amd64
 - nekopass/releases/$Version/nekopass-agent-linux-arm64

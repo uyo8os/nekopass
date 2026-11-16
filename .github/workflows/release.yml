@@ -36,7 +36,8 @@ jobs:
           python3 -m unittest discover -s tests -p public_guard_test.py
           python3 -m unittest discover -s tests -p updater_test.py
           python3 -m unittest discover -s tests -p installer_prompt_test.py
-          bash -n scripts/install-panel.sh scripts/install-agent.sh scripts/nekopassctl.sh
+          python3 -m unittest discover -s tests -p '*_uninstall_test.py'
+          bash -n scripts/install-panel.sh scripts/install-agent.sh scripts/uninstall-panel.sh scripts/uninstall-agent.sh scripts/nekopassctl.sh
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: go.mod
@@ -95,5 +96,6 @@ jobs:
             dist/oss/nekopass/releases/"$RELEASE_TAG"/nekopass-agent-linux-amd64 \
             dist/oss/nekopass/releases/"$RELEASE_TAG"/nekopass-agent-linux-arm64 \
             dist/oss/nekopass/install-panel.sh dist/oss/nekopass/install-agent.sh \
+            dist/oss/nekopass/uninstall-panel.sh dist/oss/nekopass/uninstall-agent.sh \
             dist/oss/nekopass/nekopassctl.sh dist/oss/nekopass/nekopass-update.py
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

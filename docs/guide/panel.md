@@ -83,3 +83,24 @@ sudo bash install-panel.sh --reinstall
 **此操作会删除所选 PostgreSQL 实例中该服务的全部面板数据，包括用户、余额、订单、套餐、节点和规则，并重新生成管理员密码。** 执行前自行备份。交互时输入服务名确认；加 `--yes` 会直接执行，不再确认。
 
 只处理 `--service-name` 指定的面板，默认 `nekopass`；同机节点端的配置与状态保留。原节点密钥会随面板数据库清空，节点需在新面板重新添加并配置密钥。
+
+## 卸载面板
+
+从 GitHub Releases 下载卸载脚本，在面板服务器执行：
+
+```bash
+wget https://github.com/uyo8os/nekopass/releases/latest/download/uninstall-panel.sh -O uninstall-panel.sh
+sudo bash uninstall-panel.sh
+```
+
+脚本会要求输入服务名确认，然后停止并移除面板及其更新服务、面板程序和网页。默认保留面板配置、状态和数据库；因此默认配置文件仍存在时，安装脚本会拒绝直接覆盖，重新部署前请先备份并处理原配置。卸载会中断面板服务。
+
+如需同时永久删除面板配置、状态和同名数据库，先备份，再执行：
+
+```bash
+sudo bash uninstall-panel.sh --purge
+```
+
+`--purge` 仅在配置仍使用安装器生成的本地 PostgreSQL 连接、同名数据库归属同名角色时处理数据库；无法安全确认时会停止并提示手动处理。数据库可能是安装时复用的，清除前请确认其内容。指定实例可加 `--service-name nekopass-panel-xxx`；`--dry-run` 显示计划，`--yes` 跳过确认，包括数据删除确认。
+
+脚本保留 PostgreSQL 集群、数据库角色、系统用户、依赖软件、防火墙规则以及同机节点和共享管理工具。卸载脚本作为新 Release 资产发布后才能从上述地址下载；也可从源码目录运行 `scripts/uninstall-panel.sh`。

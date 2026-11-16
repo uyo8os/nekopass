@@ -71,6 +71,25 @@ sudo nekopassctl agent update
 
 连接配置位于 `/etc/nekopass/agent.env`，运行状态位于 `/var/lib/nekopass-agent/state.db`。新增服务器时，在后台创建对应节点。
 
+## 卸载节点
+
+从 GitHub Releases 下载卸载脚本，在节点服务器执行：
+
+```bash
+wget https://github.com/uyo8os/nekopass/releases/latest/download/uninstall-agent.sh -O uninstall-agent.sh
+sudo bash uninstall-agent.sh
+```
+
+确认后，脚本会停止并移除该节点及其更新服务和 Agent 程序，现有转发会中断。默认保留节点配置（包括密钥）和本地状态，以便重新接入；面板中的节点记录不会删除。
+
+如需同时永久删除该节点的配置和状态，先备份，再执行：
+
+```bash
+sudo bash uninstall-agent.sh --purge
+```
+
+指定实例可加 `--service-name nekopass-agent-xxx`；`--dry-run` 显示计划，`--yes` 跳过确认，包括数据删除确认。脚本保留系统用户、依赖软件、防火墙规则以及同机面板和共享管理工具。卸载脚本作为新 Release 资产发布后才能从上述地址下载；也可从源码目录运行 `scripts/uninstall-agent.sh`。
+
 ## 抢占实例重建
 
 同一节点的服务器完全重建后，重新执行原安装命令即可接入。此功能使用 v0.16.1 或以上的面板及节点，每个节点对应一台服务器。

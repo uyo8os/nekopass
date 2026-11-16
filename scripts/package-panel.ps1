@@ -35,6 +35,7 @@ try {
     $installer = $installer.Replace('# PACKAGED_MANAGER', $payload).Replace('# PACKAGED_UPDATER', $updaterPayload).Replace("DEFAULT_DOWNLOAD_BASE='https://github.com/uyo8os/nekopass/releases/download'", "DEFAULT_DOWNLOAD_BASE='$($DownloadBase.TrimEnd('/'))'")
     $installer = $installer.Replace('v0.19.4', $Version)
     [IO.File]::WriteAllText((Join-Path $assets 'install-panel.sh'), $installer, $utf8)
+    [IO.File]::WriteAllText((Join-Path $assets 'uninstall-panel.sh'), [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/uninstall-panel.sh')).Replace("`r`n", "`n"), $utf8)
     $env:GOOS = 'linux'; $env:CGO_ENABLED = '0'
     foreach ($architecture in @('amd64','arm64')) {
         $env:GOARCH = $architecture
@@ -53,7 +54,7 @@ try {
     & (Join-Path $PSScriptRoot 'package-agent.ps1') -Version $Version
     if (-not $?) { throw 'Agent packaging failed' }
     $manifestPath = Join-Path $repoRoot 'dist/oss/OSS_UPLOAD.md'
-    $panelManifest = "`n## Panel one-click installer`n`n- nekopass/install-panel.sh`n- nekopass/releases/$Version/nekopass-panel-linux-amd64.tar.gz`n- nekopass/releases/$Version/nekopass-panel-linux-arm64.tar.gz`n"
+    $panelManifest = "`n## Panel one-click installer`n`n- nekopass/install-panel.sh`n- nekopass/uninstall-panel.sh`n- nekopass/releases/$Version/nekopass-panel-linux-amd64.tar.gz`n- nekopass/releases/$Version/nekopass-panel-linux-arm64.tar.gz`n"
     [IO.File]::WriteAllText($manifestPath, [IO.File]::ReadAllText($manifestPath) + $panelManifest, $utf8)
     Write-Output "Panel installer and linux amd64/arm64 releases ready: $assets"
 } finally {
