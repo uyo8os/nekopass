@@ -14,7 +14,8 @@ Nekopass 面板卸载（以 root 执行）
 
 默认保留配置、状态和数据库。--purge 要求 control.env 中的数据库地址
 仍为安装器生成的本地地址，且数据库归属同名角色。PostgreSQL 集群、角色、
-系统用户、节点、共享工具及防火墙规则均保留。卸载不会自动删除依赖软件。
+系统用户、节点、共享管理工具及防火墙规则均保留。卸载不会自动删除依赖软件。
+更新工具在没有共用它的默认节点时删除；非空安装目录会保留。
 HELP
 }
 while (($#)); do
@@ -35,7 +36,7 @@ if ((DRY_RUN)); then exit 0; fi
 [[ $(id -u) -eq 0 ]] || die '请以 root 执行'
 [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null || die '需要正在运行的 systemd'
 # Reject symlinks, including parent components, before touching any installation path.
-for target in "$BASE" "$BASE/bin" "$BASE/bin/nekopass" "$BASE/web" "$CONFIG" "$CONFIG/control.env" "$CONFIG/tls" "$CONFIG/tls/server.crt" "$CONFIG/tls/server.key" "$STATE" "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE.service.d" "$UNIT_DIR/$SERVICE.service.d/update.conf" "$UNIT_DIR/$SERVICE-update.service" "$UNIT_DIR/$SERVICE-update.path"; do
+for target in "$BASE" "$BASE/bin" "$BASE/bin/nekopass" "$BASE/bin/nekopass-update" "$BASE/web" "$CONFIG" "$CONFIG/control.env" "$CONFIG/tls" "$CONFIG/tls/server.crt" "$CONFIG/tls/server.key" "$STATE" "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE.service.d" "$UNIT_DIR/$SERVICE.service.d/update.conf" "$UNIT_DIR/$SERVICE-update.service" "$UNIT_DIR/$SERVICE-update.path"; do
  [[ ! -L "$target" && "$(realpath -m -- "$target")" == "$target" ]] || die "目标路径包含符号链接：$target"
 done
 if ((PURGE)); then
@@ -96,4 +97,30 @@ if ((PURGE)); then
  rmdir -- "$CONFIG/tls" "$CONFIG" 2>/dev/null || true
  rm -rf -- "$STATE"
 fi
-printf '[nekopass] 面板已卸载。PostgreSQL、节点、共享管理和更新工具及防火墙规则已保留。\n'
+# The default panel and agent share one updater.  Only remove it when the
+# agent binary and all its units are absent; an unknown systemd state is not
+# evidence that the agent is absent. Named panel instances have their own copy.
+remove_updater=1
+if [[ "$SERVICE" == nekopass ]]; then
+ if [[ -e "$BASE/bin/nekopass-agent" || -L "$BASE/bin/nekopass-agent" ]]; then
+  remove_updater=0
+ fi
+ for unit in nekopass-agent.service nekopass-agent-update.service nekopass-agent-update.path; do
+  if [[ -e "$UNIT_DIR/$unit" || -L "$UNIT_DIR/$unit" ]]; then
+   remove_updater=0
+  fi
+  if ! state=$(systemctl show "$unit" --property=LoadState --value) || [[ "$state" != not-found ]]; then
+   remove_updater=0
+  fi
+ done
+fi
+if ((remove_updater)); then
+ rm -f -- "$BASE/bin/nekopass-update"
+fi
+# Never recursively remove the installation directory: it can contain the
+# other component or user files. A subsequent normal uninstall can retry this.
+rmdir -- "$BASE/bin" "$BASE" 2>/dev/null || true
+printf '[nekopass] 面板已卸载。PostgreSQL、节点、共享管理工具及防火墙规则已保留。\n'
+if ((!remove_updater)); then
+ printf '[nekopass] 检测到节点或无法确认节点状态，已保留共享更新工具。\n'
+fi

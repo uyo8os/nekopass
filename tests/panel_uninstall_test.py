@@ -147,6 +147,70 @@ python3() { command python "$1" "$(cygpath -w "$2")" "$3"; }
    self.assertTrue((root / 'opt/nekopass/bin/nekopass-agent').exists())
    self.assertTrue((root / 'etc/nekopass/agent.env').exists())
 
+ def test_updater_cleanup_preserves_other_instances_and_unknown_files(self):
+  for scenario in ['alone', 'binary', 'unit', 'unit-file', 'unit-link', 'unknown-state', 'user-file', 'named']:
+   with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temp:
+    root = pathlib.Path(temp)
+    service = 'nekopass-panel-test' if scenario == 'named' else 'nekopass'
+    base = root / 'opt' / service
+    (base / 'bin').mkdir(parents=True)
+    (root / 'etc/systemd/system').mkdir(parents=True)
+    (base / 'bin/nekopass').write_text('panel')
+    (base / 'bin/nekopass-update').write_text('updater')
+    if scenario == 'binary':
+     (base / 'bin/nekopass-agent').write_text('agent')
+    if scenario == 'user-file':
+     (base / 'user-data').write_text('keep')
+    unit_file = root / 'etc/systemd/system/nekopass-agent-update.path'
+    if scenario == 'unit-file':
+     unit_file.write_text('unit')
+    if scenario == 'unit-link':
+     try:
+      unit_file.symlink_to('missing-target')
+     except OSError:
+      continue  # Windows may prohibit creating symlinks without privileges.
+
+    posix_root = bash_path(root)
+    source = SCRIPT.read_text(encoding='utf-8')
+    source = source.replace('BASE="/opt/$SERVICE"; CONFIG="/etc/$SERVICE"; STATE="/var/lib/$SERVICE"',
+                            f'BASE="{posix_root}/opt/$SERVICE"; CONFIG="{posix_root}/etc/$SERVICE"; STATE="{posix_root}/var/lib/$SERVICE"')
+    source = source.replace('UNIT_DIR=/etc/systemd/system', f'UNIT_DIR={posix_root}/etc/systemd/system')
+    source = source.replace('[[ $(id -u) -eq 0 ]]', '[[ 0 -eq 0 ]]')
+    source = source.replace('[[ -d /run/systemd/system ]]', '[[ -d / ]]')
+    source = source.replace('set -Eeuo pipefail', """set -Eeuo pipefail
+systemctl() {
+ if [[ "$1" == show ]]; then
+  if [[ "$2" == nekopass-agent.service ]]; then
+   case "${SCENARIO:-}" in unit) echo loaded; return 0;; unknown-state) return 1;; esac
+  fi
+  echo not-found
+ fi
+ return 0
+}
+""", 1)
+    isolated = root / 'uninstall.sh'
+    isolated.write_text(source, encoding='utf-8', newline='\n')
+    env = dict(os.environ, SCENARIO=scenario, MSYS_NO_PATHCONV='1')
+    result = subprocess.run([BASH, bash_path(isolated), '--service-name', service, '--yes'], env=env, capture_output=True)
+    self.assertEqual(result.returncode, 0, result.stderr)
+    updater = base / 'bin/nekopass-update'
+    self.assertEqual(updater.exists(), scenario in ['binary', 'unit', 'unit-file', 'unit-link', 'unknown-state'])
+    if scenario in ['alone', 'named']:
+     self.assertFalse(base.exists())
+    if scenario == 'user-file':
+     self.assertTrue((base / 'user-data').exists())
+    if scenario in ['binary', 'unit', 'unit-file', 'unit-link', 'unknown-state']:
+     if scenario == 'binary':
+      (base / 'bin/nekopass-agent').unlink()
+     if scenario in ['unit-file', 'unit-link']:
+      unit_file.unlink()
+     env['SCENARIO'] = 'alone'
+     # A regular uninstall can finish cleaning after the agent disappears,
+     # including after a previous purge removed the panel configuration.
+     result = subprocess.run([BASH, bash_path(isolated), '--yes'], env=env, capture_output=True)
+     self.assertEqual(result.returncode, 0, result.stderr)
+     self.assertFalse(base.exists())
+
 
 if __name__ == '__main__':
  unittest.main()

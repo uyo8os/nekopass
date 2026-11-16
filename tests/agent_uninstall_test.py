@@ -35,6 +35,12 @@ class AgentUninstallTest(unittest.TestCase):
 systemctl() {
  printf '%s\\n' "$*" >> "$AGENT_TEST_LOG"
  if [[ "$1" == show ]]; then
+  if [[ "$2" == nekopass.service || "$2" == nekopass-update.path || "$2" == nekopass-update.service ]]; then
+   if [[ "$2" == "$PANEL_LIVE_UNIT" ]]; then echo loaded; return 0; fi
+   [[ "$PANEL_STATE" != error ]] || return 1
+   echo "$PANEL_STATE"
+   return 0
+  fi
   if [[ "$2" == "$AGENT_BAD_UNIT" ]]; then echo masked; else echo loaded; fi
  fi
  if [[ "$1" == stop && "$2" == "$AGENT_FAIL_UNIT" ]]; then return 1; fi
@@ -47,7 +53,8 @@ systemctl() {
         self.make('run/systemd/system/.keep')
         self.env = os.environ.copy()
         self.env.update(AGENT_TEST_LOG=bash_path(self.root / 'systemctl.log'),
-                        AGENT_FAIL_UNIT='', AGENT_BAD_UNIT='', AGENT_FAIL_DISABLE='', MSYS_NO_PATHCONV='1')
+                        AGENT_FAIL_UNIT='', AGENT_BAD_UNIT='', AGENT_FAIL_DISABLE='',
+                        PANEL_STATE='not-found', PANEL_LIVE_UNIT='', MSYS_NO_PATHCONV='1')
 
     def make(self, path):
         file = self.root / path
@@ -96,6 +103,64 @@ systemctl() {
             self.assertFalse(files[key].exists(), key)
         for file in other.values():
             self.assertTrue(file.exists(), file)
+        self.assertFalse((self.root / 'opt/nekopass-agent-test').exists())
+
+    def test_purge_removes_unshared_updater_and_empty_directory(self):
+        files = self.fixture()
+        files['panel'].unlink()
+        result = self.run_script('--yes', '--purge')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'opt/nekopass').exists())
+        for key in ('config', 'state'):
+            self.assertFalse(files[key].exists(), key)
+
+    def test_default_uninstall_removes_unshared_programs_but_keeps_data(self):
+        files = self.fixture()
+        files['panel'].unlink()
+        result = self.run_script('--yes')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / 'opt/nekopass').exists())
+        self.assertTrue(files['config'].exists())
+        self.assertTrue(files['state'].exists())
+
+    def test_preserves_updater_for_panel_or_uncertain_status(self):
+        for state, panel_unit in [('loaded', False), ('error', False),
+                                  ('masked', False), ('not-found', True)]:
+            with self.subTest(state=state, panel_unit=panel_unit):
+                files = self.fixture()
+                files['panel'].unlink()
+                if panel_unit:
+                    unit = self.make('etc/systemd/system/nekopass.service')
+                self.env['PANEL_STATE'] = state
+                result = self.run_script('--yes', '--purge')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(files['updater'].exists())
+                if panel_unit:
+                    unit.unlink()
+
+    def test_preserves_updater_for_panel_update_units(self):
+        for name in ('nekopass-update.path', 'nekopass-update.service'):
+            for present_as in ('loaded', 'file'):
+                with self.subTest(unit=name, present_as=present_as):
+                    files = self.fixture()
+                    files['panel'].unlink()
+                    self.env['PANEL_LIVE_UNIT'] = name if present_as == 'loaded' else ''
+                    if present_as == 'file':
+                        unit = self.make(f'etc/systemd/system/{name}')
+                    result = self.run_script('--yes', '--purge')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(files['updater'].exists())
+                    if present_as == 'file':
+                        unit.unlink()
+
+    def test_unknown_files_are_not_removed(self):
+        files = self.fixture()
+        files['panel'].unlink()
+        unknown = self.make('opt/nekopass/bin/local-file')
+        result = self.run_script('--yes', '--purge')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(files['updater'].exists())
+        self.assertTrue(unknown.exists())
 
     def test_stop_failure_does_not_delete_files(self):
         files = self.fixture()

@@ -17,7 +17,7 @@ Nekopass Agent 卸载脚本（Linux + systemd，需要 root）
   -h, --help           显示帮助
 
 默认保留配置（含节点 token）和状态，以便使用原连接信息重新安装。
-共享的 nekopassctl、更新工具（默认节点）、系统用户和依赖不会被删除。
+共享的 nekopassctl、系统用户和依赖不会被删除；面板仍在使用时保留共享更新工具。
 卸载不会删除面板中的节点记录，也不会撤销防火墙规则。
 HELP
 }
@@ -86,7 +86,21 @@ rm -f -- "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DI
 if [[ "$SERVICE" != nekopass-agent ]]; then
  # Suffix instances have an isolated updater; the default updater is shared with the panel.
  rm -f -- "$(dirname "$BIN")/nekopass-update"
+else
+ # Preserve the shared updater if the panel or any of its update units exists,
+ # or if systemd cannot confirm that all three units are absent.
+ panel_absent=1
+ for unit in nekopass.service nekopass-update.path nekopass-update.service; do
+  panel_state=$(systemctl show "$unit" -p LoadState --value) || panel_state=unknown
+  if [[ "$panel_state" != not-found || -e "$UNIT_DIR/$unit" || -L "$UNIT_DIR/$unit" ]]; then
+   panel_absent=0
+  fi
+ done
+ if ((panel_absent)) && [[ ! -e "$(dirname "$BIN")/nekopass" && ! -L "$(dirname "$BIN")/nekopass" ]]; then
+  rm -f -- "$(dirname "$BIN")/nekopass-update"
+ fi
 fi
+rmdir -- "$(dirname "$BIN")" "$(dirname "$(dirname "$BIN")")" 2>/dev/null || true
 systemctl daemon-reload
 if ((PURGE)); then
  rm -f -- "$ENV_FILE"
