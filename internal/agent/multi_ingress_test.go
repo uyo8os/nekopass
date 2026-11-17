@@ -65,6 +65,7 @@ func TestMultiIngressH2ForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	check := func(rule *pb.Rule, allowed bool) {
@@ -95,6 +96,7 @@ func TestMultiIngressH2ForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	check(first, false)
 	check(second, true)
 }
@@ -113,6 +115,7 @@ func TestMultiIngressH3UDPForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	check := func(rule *pb.Rule, allowed bool) {
@@ -148,6 +151,7 @@ func TestMultiIngressH3UDPForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	check(first, false)
 	check(second, true)
 }
@@ -166,6 +170,7 @@ func TestMultiIngressPlainTCPForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	check := func(rule *pb.Rule, allowed bool) {
@@ -196,6 +201,7 @@ func TestMultiIngressPlainTCPForwardingAndRevocation(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	check(first, false)
 	check(second, true)
 }

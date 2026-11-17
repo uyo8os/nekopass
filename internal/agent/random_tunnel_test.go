@@ -41,6 +41,7 @@ func TestRandomAlgorithmsAcrossStreamTransports(t *testing.T) {
 				if err := exit.Apply(c); err != nil {
 					t.Fatal(err)
 				}
+				assertTunnelTestApplied(t, exit)
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				dial := func(rule *pb.Rule) (net.Conn, error) {
@@ -94,6 +95,7 @@ func TestRandomAlgorithmsAcrossStreamTransports(t *testing.T) {
 				if err = exit.Apply(c); err != nil {
 					t.Fatal(err)
 				}
+				assertTunnelTestApplied(t, exit)
 				if peer, err := dial(old); err == nil {
 					peer.Close()
 					t.Fatal("old key accepted after rotation")

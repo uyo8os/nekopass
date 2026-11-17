@@ -95,6 +95,7 @@ func TestMuxNodeLimitCountsLogicalSessions(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			var conn net.Conn
@@ -124,6 +125,7 @@ func TestNativeMuxCapacityCloseAndIdleRecovery(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			var queued atomic.Int64
@@ -173,6 +175,7 @@ func TestMuxConcurrentStreamsAndPoolCancellation(t *testing.T) {
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -238,6 +241,7 @@ func TestMuxManySimultaneousSessions(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			if e.nativeUDP != nil {
 				e.nativeUDP.conn.SetReadBuffer(1 << 20)
 			}
@@ -432,6 +436,7 @@ func muxFixture(t *testing.T, mode, target string) (*Engine, *h2Transport, *pb.C
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	return e, h, c, r
 }
 func muxExchange(t *testing.T, c net.Conn, body []byte, udp bool) {
@@ -467,6 +472,7 @@ func TestRawTCPMuxSecurityModesAndUserIsolation(t *testing.T) {
 				if err := e.Apply(c); err != nil {
 					t.Fatal(err)
 				}
+				assertTunnelTestApplied(t, e)
 			}
 			grant := proto.Clone(c.EgressRules[0]).(*pb.EgressRule)
 			grant.RuleId++
@@ -475,6 +481,7 @@ func TestRawTCPMuxSecurityModesAndUserIsolation(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			r2 := proto.Clone(r).(*pb.Rule)
 			r2.Id++
 			r2.UserId++
@@ -505,6 +512,7 @@ func TestRawTCPMuxSecurityModesAndUserIsolation(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			time.Sleep(1100 * time.Millisecond)
 			first.SetReadDeadline(time.Now().Add(time.Second))
 			if _, err := first.Read(make([]byte, 1)); err == nil {
@@ -532,6 +540,7 @@ func TestRawTCPMuxUDPAndCapacity(t *testing.T) {
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	first, err := dialDatagramTunnel(ctx, ctx, r, target, h, &atomic.Int64{})
@@ -606,6 +615,7 @@ func TestNativeMuxSecurityModesAndFlowIsolation(t *testing.T) {
 			if err := e.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, e)
 			r2 := proto.Clone(r).(*pb.Rule)
 			r2.Id++
 			r2.UserId++

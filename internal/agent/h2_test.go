@@ -22,12 +22,7 @@ func h2Fixture(t testing.TB, target string) (*Engine, *h2Transport, *pb.ControlM
 	if err != nil {
 		t.Fatal(err)
 	}
-	reservation, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := reservation.Addr().(*net.TCPAddr).Port
-	reservation.Close()
+	port := availableTunnelTestPort(t)
 	state, err := OpenState(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +39,7 @@ func h2Fixture(t testing.TB, target string) (*Engine, *h2Transport, *pb.ControlM
 	if err = engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	transport := newH2Transport()
 	t.Cleanup(transport.Close)
 	rule := &pb.Rule{Id: 11, UserId: 5, IngressNodeId: 2, EgressNodeId: 3, QuotaEpoch: 3, TunnelProtocol: "tls_h2", TunnelHost: "127.0.0.1", TunnelPort: int32(port), TunnelToken: secret,

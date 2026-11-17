@@ -49,6 +49,7 @@ func randomUDPFixture(t testing.TB, name, target string) (*Engine, *h2Transport,
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	return e, h, c, r
 }
 
@@ -92,6 +93,7 @@ func TestRandomUDPAlgorithmsMultiplexAndAuthorization(t *testing.T) {
 			if err := exit.Apply(c); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 			defer cancel()
 			var queued atomic.Int64
@@ -401,6 +403,7 @@ func TestRandomUDPACLRevocationAndKeyRotation(t *testing.T) {
 	if err = exit.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, exit)
 	if denied, err := h.randomUDP.Dial(ctx, ctx, r, target, &queued); err != errTunnelTarget {
 		if denied != nil {
 			denied.Close()
@@ -420,6 +423,7 @@ func TestRandomUDPACLRevocationAndKeyRotation(t *testing.T) {
 	if err = exit.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, exit)
 	peer, err := h.randomUDP.Dial(ctx, ctx, r, target, &queued)
 	if err != nil {
 		t.Fatal("new key failed", err)

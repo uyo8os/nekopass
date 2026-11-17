@@ -51,6 +51,7 @@ func TestTunnelTransportSecurityCombinations(t *testing.T) {
 			if err = engine.Apply(config); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, engine)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			dial := func(r *pb.Rule) (net.Conn, error) {
@@ -142,6 +143,7 @@ func TestPlainH2RejectsCapturedProofAcrossConnections(t *testing.T) {
 	if err = engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	first, err := dialH2Peer(ctx, rule)

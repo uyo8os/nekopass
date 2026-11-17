@@ -144,6 +144,7 @@ func TestGroupAuthenticatedHealthAllTransports(t *testing.T) {
 			if err := exit.Apply(cfg); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			var queued atomic.Int64
@@ -172,6 +173,7 @@ func TestGroupAuthenticatedHealthAllTransports(t *testing.T) {
 			if err := exit.Apply(cfg); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			if c, err := dialEgress(ctx, ctx, r, tunnelHealthTarget, r.Protocol == "udp", h2, &queued); err == nil {
 				c.Close()
 				t.Fatal("health bypassed revoked rule")
@@ -195,6 +197,7 @@ func TestGroupTargetRejectionDoesNotLookLikeTunnelFailure(t *testing.T) {
 				if err := exit.Apply(cfg); err != nil {
 					t.Fatal(err)
 				}
+				assertTunnelTestApplied(t, exit)
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				var queued atomic.Int64
@@ -230,6 +233,7 @@ func TestGroupTCPFailoverStickySessionsAndQuota(t *testing.T) {
 	if err = exit.Apply(cfg); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, exit)
 	dead, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -335,6 +339,7 @@ func TestGroupUDPMixedTransportsStickySessionsAndMetering(t *testing.T) {
 		if err = exit.Apply(cfg); err != nil {
 			t.Fatal(err)
 		}
+		assertTunnelTestApplied(t, exit)
 		peers = append(peers, &pb.EgressPeer{NodeId: int64(30 + i), Host: r.TunnelHost, Port: r.TunnelPort, Token: r.TunnelToken, Protocol: mode, Tls: r.Tls, Weight: 1})
 		base = r
 	}

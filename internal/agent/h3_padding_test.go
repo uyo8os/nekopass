@@ -33,6 +33,7 @@ func h3PaddingFixture(t *testing.T, target string, serverPad bool) (*Engine, *h2
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	return e, h, c, r
 }
 func TestH3PaddingTCPAndPeerCompatibility(t *testing.T) {
@@ -91,6 +92,7 @@ func TestH3PaddingUDPBoundaryAndRevocation(t *testing.T) {
 	if err := exit.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, exit)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var queued atomic.Int64
@@ -114,6 +116,7 @@ func TestH3PaddingUDPBoundaryAndRevocation(t *testing.T) {
 	if err := exit.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, exit)
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err = conn.Read(make([]byte, 1)); err == nil {
 		t.Fatal("revoked UDP remained open")
@@ -238,6 +241,7 @@ func TestH3PaddingRealWebsiteAndFallback(t *testing.T) {
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM([]byte(r.Tls.RootCa))
 	tlsCfg := &tls.Config{ServerName: r.Tls.ServerName, RootCAs: roots, MinVersion: tls.VersionTLS13}
@@ -280,6 +284,7 @@ func TestH3PaddingRealWebsiteAndFallback(t *testing.T) {
 	if err = e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	response, err = client.Get(address)
 	if err != nil {
 		t.Fatal(err)
@@ -379,6 +384,7 @@ func TestH3PaddingConfigurationReload(t *testing.T) {
 	if err := e.Apply(updated); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	if e.h3Listener == original || e.h3Listener.server.QUICConfig.PacketPadding.MaxPadding != 512 {
 		t.Fatal("updated policy did not replace listener configuration")
 	}
@@ -386,6 +392,7 @@ func TestH3PaddingConfigurationReload(t *testing.T) {
 	if err := e.Apply(updated); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	if e.h3Listener != current {
 		t.Fatal("unchanged policy restarted listener")
 	}

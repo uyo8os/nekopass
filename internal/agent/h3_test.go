@@ -34,6 +34,7 @@ func h3Fixture(t testing.TB, target string) (*Engine, *h2Transport, *pb.ControlM
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	return e, h, c, r
 }
 func TestH3TCPHalfCloseAndAuthentication(t *testing.T) {
@@ -79,6 +80,7 @@ func TestH3ConnectUDPDatagrams(t *testing.T) {
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var queued atomic.Int64
@@ -118,6 +120,7 @@ func TestH3RealWebsiteAndFallback(t *testing.T) {
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM([]byte(r.Tls.RootCa))
 	tlsCfg := &tls.Config{ServerName: r.Tls.ServerName, RootCAs: roots, MinVersion: tls.VersionTLS13}
@@ -160,6 +163,7 @@ func TestH3RealWebsiteAndFallback(t *testing.T) {
 	if err = e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	response, err = client.Get(address)
 	if err != nil {
 		t.Fatal(err)
@@ -232,6 +236,7 @@ func TestH3PoolCapacityCancellationAndRecovery(t *testing.T) {
 	if err := e.Apply(cfg); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	life, end := context.WithCancel(ctx)
@@ -349,6 +354,7 @@ func TestH3ReplayAuthorityAndLiveRevocation(t *testing.T) {
 	if err = e.Apply(cfg); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err = conn.Read(make([]byte, 1)); err == nil {
 		t.Fatal("revoked stream kept forwarding")
@@ -366,6 +372,7 @@ func TestH3ReplayAuthorityAndLiveRevocation(t *testing.T) {
 	if err = e.Apply(cfg); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 	if c, err := h.h3.Dial(ctx, ctx, r, target, false, nil); !errors.Is(err, errTunnelTarget) {
 		if c != nil {
 			c.Close()
@@ -383,6 +390,7 @@ func TestH3UDPMeteringFreeAndFinite(t *testing.T) {
 			if err := exit.Apply(config); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			state, err := OpenState(filepath.Join(t.TempDir(), "entry.db"))
 			if err != nil {
 				t.Fatal(err)

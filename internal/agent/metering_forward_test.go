@@ -24,6 +24,7 @@ func TestMeteredGroupUsesTheSelectedExitRate(t *testing.T) {
 		if err := exit.Apply(cfg); err != nil {
 			t.Fatal(err)
 		}
+		assertTunnelTestApplied(t, exit)
 		peers = append(peers, &pb.EgressPeer{NodeId: int64(3 + i), Host: r.TunnelHost, Port: r.TunnelPort, Token: r.TunnelToken, Protocol: mode, Tls: r.Tls, Weight: 1, TrafficRate: []int64{5000, 20000}[i]})
 		rule = r
 	}
@@ -113,6 +114,7 @@ func TestMeteredTCPForwardingAcrossTransports(t *testing.T) {
 			if err := exit.Apply(cfg); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			state, err := OpenState(filepath.Join(t.TempDir(), "entry.db"))
 			if err != nil {
 				t.Fatal(err)

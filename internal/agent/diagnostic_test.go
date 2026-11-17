@@ -74,6 +74,7 @@ func TestDiagnosticExitGrantAndTunnel(t *testing.T) {
 			if err := exit.Apply(exitConfig); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, exit)
 			entry := &Engine{revision: 1, h2: h2}
 			entryConfig := &pb.ControlMessage{Revision: 1, Node: &pb.NodeConfig{NodeId: 2, Enabled: true}, Rules: []*pb.Rule{rule}}
 			task := &pb.DiagnosticTask{TaskId: "one", RuleId: rule.Id, Kind: "tunnel", EgressNodeId: 3}

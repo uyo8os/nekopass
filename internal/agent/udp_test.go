@@ -43,6 +43,7 @@ func TestUDPDirectPreservesDatagramsAndMetersPayloadOnly(t *testing.T) {
 	if err = engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	listener := engine.udpListeners[1]
 	if listener == nil {
 		t.Fatal("UDP listener missing")
@@ -77,6 +78,7 @@ func TestUDPDirectPreservesDatagramsAndMetersPayloadOnly(t *testing.T) {
 	if err = engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, engine)
 	if engine.udpListeners[1] != nil {
 		t.Fatal("paused UDP listener still present")
 	}
@@ -148,9 +150,7 @@ func TestNativeUDPUnknownProbeIsSilent(t *testing.T) {
 	if err := engine.Apply(config); err != nil {
 		t.Fatal(err)
 	}
-	if engine.syncError != "" {
-		t.Fatal(engine.syncError)
-	}
+	assertTunnelTestApplied(t, engine)
 	conn, err := net.DialUDP("udp", nil, engine.nativeUDP.conn.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
@@ -193,6 +193,7 @@ func TestUDPStreamTunnelTransportCombinations(t *testing.T) {
 			if err = engine.Apply(config); err != nil {
 				t.Fatal(err)
 			}
+			assertTunnelTestApplied(t, engine)
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			c, err := dialDatagramTunnel(ctx, ctx, rule, echo.LocalAddr().String(), transport, &engine.udpQueued)

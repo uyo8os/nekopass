@@ -27,6 +27,7 @@ func enableBrutalFixture(t testing.TB, e *Engine, c *pb.ControlMessage, r *pb.Ru
 	if err := e.Apply(c); err != nil {
 		t.Fatal(err)
 	}
+	assertTunnelTestApplied(t, e)
 }
 
 func TestBrutalNativeUDPAllSecurityModes(t *testing.T) {
@@ -212,6 +213,7 @@ func TestBrutalUDPConfigurationMismatchFailsBeforeTargetData(t *testing.T) {
 				if err := e.Apply(c); err != nil {
 					t.Fatal(err)
 				}
+				assertTunnelTestApplied(t, e)
 				ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
 				defer cancel()
 				var queued atomic.Int64
