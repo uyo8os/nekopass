@@ -1,4 +1,4 @@
-param([string]$Version = 'v0.10.9', [string]$DownloadBase = 'https://github.com/uyo8os/nekopass/releases/download')
+param([string]$Version = 'v0.11.0', [string]$DownloadBase = 'https://github.com/uyo8os/nekopass/releases/download')
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or $Version.Contains('..')) { throw 'Invalid version' }
 if ($DownloadBase) {
@@ -33,7 +33,7 @@ try {
     $updater = [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/nekopass-update.py')).Replace("`r`n", "`n")
     $updaterPayload = "write_updater_payload() {`ncat <<'NEKOPASS_UPDATER_PAYLOAD'`n" + $updater.TrimEnd() + "`nNEKOPASS_UPDATER_PAYLOAD`n}`n"
     $installer = $installer.Replace('# PACKAGED_MANAGER', $payload).Replace('# PACKAGED_UPDATER', $updaterPayload).Replace("DEFAULT_DOWNLOAD_BASE='https://github.com/uyo8os/nekopass/releases/download'", "DEFAULT_DOWNLOAD_BASE='$($DownloadBase.TrimEnd('/'))'")
-    $installer = $installer.Replace('v0.10.9', $Version)
+    $installer = $installer.Replace('v0.11.0', $Version)
     [IO.File]::WriteAllText((Join-Path $assets 'install-panel.sh'), $installer, $utf8)
     [IO.File]::WriteAllText((Join-Path $assets 'uninstall-panel.sh'), [IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/uninstall-panel.sh')).Replace("`r`n", "`n"), $utf8)
     $env:GOOS = 'linux'; $env:CGO_ENABLED = '0'
