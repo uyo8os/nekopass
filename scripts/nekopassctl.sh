@@ -97,14 +97,14 @@ edit_config() {
 configure_agent() {
  [[ "$CONFIG" != */control.env ]] || { fail '此功能用于节点端，面板端请选择编辑配置。'; return 1; }
  local server token
- printf '主控地址（https://panel.example.com:9443 或测试用 http://IP:9443）：'
+ printf '主控地址（https://panel.example.com 或测试用 http://IP:9443）：'
  read -r server || return 1
  python3 - "$server" <<'PY'
 import sys,urllib.parse
 raw=sys.argv[1];u=urllib.parse.urlsplit(raw if '://' in raw else '//'+raw)
 try:port=u.port
 except ValueError:sys.exit('主控端口无效')
-if u.scheme not in ('','http','https') or not u.hostname or not port or not 1<=port<=65535 or u.path not in ('','/') or u.query or u.fragment or u.username or u.password or any(c in raw for c in '\r\n\0'):sys.exit('主控地址格式无效')
+if u.scheme not in ('','http','https') or not u.hostname or (port is None and (not u.scheme or u.netloc.endswith(':'))) or (port is not None and not 1<=port<=65535) or u.path not in ('','/') or u.query or u.fragment or u.username or u.password or any(c in raw for c in '\r\n\0'):sys.exit('主控地址格式无效')
 PY
  [[ $? -eq 0 ]] || return 1
  printf '节点密钥（从后台节点编辑中复制，输入不回显）：'

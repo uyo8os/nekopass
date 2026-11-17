@@ -24,7 +24,7 @@ func main() {
 	}
 }
 func run() error {
-	server := flag.String("server", os.Getenv("NEKOPASS_SERVER"), "control endpoint: https://host:port (verified TLS) or http://host:port (h2c)")
+	server := flag.String("server", os.Getenv("NEKOPASS_SERVER"), "control endpoint: https://host[:port] (verified TLS) or http://host[:port] (h2c)")
 	statePath := flag.String("state", "/var/lib/nekopass-agent/state.db", "durable state; never delete or clone between nodes")
 	showVersion := flag.Bool("version", false, "show build version")
 	flag.Parse()

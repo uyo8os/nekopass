@@ -6,7 +6,7 @@
 
 在后台「节点管理」创建节点，复制该节点的「安装命令」，以 root 在节点服务器执行。
 
-命令使用 `wget … -O nekopass-install-agent.sh && bash nekopass-install-agent.sh …`，参数直接包含主控 gRPC 地址与端口、节点密钥、版本和下载源。节点地址使用 `https://`（公共 CA 可信证书）或测试用 `http://`（明文 HTTP/2），不附带 CA 参数。命令可重复使用，自动判断首次安装或覆盖安装；传入的连接参数会覆盖配置文件。同一节点密钥和主控主机及端口的状态会保留；更换密钥、主机或端口时会归档原状态。
+命令使用 `wget … -O nekopass-install-agent.sh && bash nekopass-install-agent.sh …`，参数直接包含「系统设置 → Agent 通信地址」、节点密钥、版本和下载源。节点地址使用 `https://`（公共 CA 可信证书）或测试用 `http://`（明文 HTTP/2），不附带 CA 参数。命令可重复使用，自动判断首次安装或覆盖安装；传入的连接参数会覆盖配置文件。同一节点密钥和主控主机及端口的状态会保留；更换密钥、主机或端口时会归档原状态。
 
 节点显示「在线 / 已同步」后即可使用。端口范围、入口出口和探针设置均在后台修改。
 
@@ -54,7 +54,7 @@ sudo nekopassctl agent configure
 sudo nekopassctl agent restart
 ```
 
-生产环境填写 `https://域名:端口`，证书由公共 CA 签发并覆盖该域名；测试环境填写 `http://IP:端口`。`NEKOPASS_SERVER` 未带协议的旧地址仍按 TLS 连接。
+生产环境填写 `https://域名` 或 `https://域名:端口`，证书由公共 CA 签发并覆盖该域名；省略端口时 HTTPS 默认使用 443，HTTP 默认使用 80。测试环境可填写 `http://IP:端口`。`NEKOPASS_SERVER` 未带协议的旧地址仍需指定端口，并按 TLS 连接。旧版安装脚本及 Agent 需要显式填写端口，例如 `https://域名:443`。
 
 ## 升级
 

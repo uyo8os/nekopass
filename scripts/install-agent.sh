@@ -25,7 +25,7 @@ Direct mode:
 Legacy installation credential (compatibility only):
   bash install-agent.sh -p https://panel.example.com -i INSTALL_TOKEN
 
-  -s, --server URL             https://host:port for public TLS; http://host:port for test h2c
+  -s, --server URL             https://host[:port] for public TLS; http://host[:port] for test h2c
   -t, --token TOKEN            Node token, never a global management API key
       --token-file PATH       Read node token from a file
   -p, --panel-url URL          Legacy install-token API root; unused with --server/--token
@@ -204,13 +204,14 @@ PY
 fi
 [[ "$TOKEN" =~ ^[A-Za-z0-9_-]{8,128}$ ]] || die 'A valid node token is required'
 python3 - "$SERVER" <<'PY'
-import re,sys,urllib.parse
+import sys,urllib.parse
 raw=sys.argv[1]
 if any(c in raw for c in '\r\n\0'):sys.exit('Invalid server endpoint')
-v=urllib.parse.urlsplit(raw if '://' in raw else '//'+raw)
-try:port=v.port
+try:
+ v=urllib.parse.urlsplit(raw if '://' in raw else '//'+raw)
+ port=v.port
 except ValueError:sys.exit('Invalid server port')
-if v.scheme not in ('','http','https') or not v.hostname or not port or not 1<=port<=65535 or v.path not in ('','/') or v.query or v.fragment or v.username or v.password:sys.exit('Use https://host:port or http://host:port')
+if v.scheme not in ('','http','https') or not v.hostname or v.netloc.endswith(':') or (port is None and not v.scheme) or (port is not None and not 1<=port<=65535) or v.path not in ('','/') or v.query or v.fragment or v.username or v.password:sys.exit('Use https://host[:port] or http://host[:port]')
 PY
 [[ "$VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$VERSION" != *..* ]] || die 'Invalid release version'
 if [[ -z "$BINARY_URL" ]]; then
@@ -227,7 +228,7 @@ if [[ -f "$STATE_DIR/state.db" ]]; then
 import sys,urllib.parse
 def authority(raw):
  u=urllib.parse.urlsplit(raw if '://' in raw else '//'+raw)
- return (u.hostname,u.port)
+ return (u.hostname,u.port if u.port is not None else {'https':443,'http':80}.get(u.scheme))
 sys.exit(0 if authority(sys.argv[1])==authority(sys.argv[2]) else 1)
 PY_COMPARE_ENDPOINTS
   then RESET_STATE=1; fi
@@ -264,7 +265,20 @@ if ((RESET_STATE)); then
  log 'Connection settings changed; previous accounting state archived for recovery.'
 fi
 install -m 755 "$WORK/agent" "$BIN"
-printf 'NEKOPASS_SERVER=%s\nNEKOPASS_NODE_TOKEN=%s\n' "$SERVER" "$TOKEN" > "$WORK/agent.env"
+# Older Agent releases require an explicit port even for standard URLs. Keep
+# the supplied address for identity comparisons, but write a compatible URL.
+CONFIG_SERVER=$(python3 - "$SERVER" <<'PY_CONFIG_ENDPOINT'
+import sys,urllib.parse
+raw=sys.argv[1]
+u=urllib.parse.urlsplit(raw if '://' in raw else '//'+raw)
+if u.scheme in ('http','https') and u.port is None:
+ u=u._replace(netloc=u.netloc+(':'+('443' if u.scheme=='https' else '80')))
+ print(u.geturl(),end='')
+else:
+ print(raw,end='')
+PY_CONFIG_ENDPOINT
+)
+printf 'NEKOPASS_SERVER=%s\nNEKOPASS_NODE_TOKEN=%s\n' "$CONFIG_SERVER" "$TOKEN" > "$WORK/agent.env"
 install -m 600 "$WORK/agent.env" "$ENV_FILE"
 cat > "$WORK/agent.service" <<UNIT
 [Unit]

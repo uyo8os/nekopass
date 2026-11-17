@@ -10,13 +10,13 @@ import (
 )
 
 func TestControlEndpointModes(t *testing.T) {
-	for _, tc := range []struct{ raw, target, protocol string }{{"panel.example.test:9443", "panel.example.test:9443", "tls"}, {"https://panel.example.test:443", "panel.example.test:443", "tls"}, {"http://127.0.0.1:9443", "127.0.0.1:9443", "insecure"}, {"http://[2001:db8::1]:9443/", "[2001:db8::1]:9443", "insecure"}} {
+	for _, tc := range []struct{ raw, target, protocol string }{{"panel.example.test:9443", "panel.example.test:9443", "tls"}, {"https://panel.example.test:443", "panel.example.test:443", "tls"}, {"https://panel.example.test", "panel.example.test:443", "tls"}, {"http://panel.example.test/", "panel.example.test:80", "insecure"}, {"https://[2001:db8::1]", "[2001:db8::1]:443", "tls"}, {"http://[2001:db8::1]", "[2001:db8::1]:80", "insecure"}, {"http://127.0.0.1:9443", "127.0.0.1:9443", "insecure"}, {"http://[2001:db8::1]:9443/", "[2001:db8::1]:9443", "insecure"}} {
 		target, creds, err := controlEndpoint(tc.raw)
 		if err != nil || target != tc.target || creds.Info().SecurityProtocol != tc.protocol {
 			t.Fatalf("wrong control endpoint mode: %s", tc.raw)
 		}
 	}
-	for _, raw := range []string{"ftp://panel.example.test:443", "https://user:secret@panel.example.test:443", "http://panel.example.test:9443/path", "https://panel.example.test:9443?q=x", "https://panel.example.test:9443#fragment", "http://panel.example.test:0", "http://panel.example.test:70000", "http://panel.example.test", "https://:443", "http://panel.example.test:9443\n"} {
+	for _, raw := range []string{"ftp://panel.example.test:443", "https://user:secret@panel.example.test:443", "http://panel.example.test:9443/path", "https://panel.example.test:9443?q=x", "https://panel.example.test:9443#fragment", "http://panel.example.test:0", "http://panel.example.test:70000", "http://panel.example.test:", "https://2001:db8::1", "panel.example.test", "https://:443", "https://", "http://panel.example.test:9443\n"} {
 		if _, _, err := controlEndpoint(raw); err == nil {
 			t.Fatalf("invalid endpoint accepted: %q", raw)
 		}

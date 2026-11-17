@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -108,6 +109,9 @@ func InitializeInstallationSettings(ctx context.Context, p *pgxpool.Pool, input 
 	if input.PanelURL != nil {
 		v.PanelURL = *input.PanelURL
 	}
+	if input.AgentHost != nil || input.AgentPort != nil {
+		v.AgentAddress = ""
+	}
 	if input.AgentHost != nil {
 		v.AgentHost = *input.AgentHost
 	}
@@ -116,6 +120,15 @@ func InitializeInstallationSettings(ctx context.Context, p *pgxpool.Pool, input 
 	}
 	if input.AgentTransport != nil {
 		v.AgentTransport = *input.AgentTransport
+		// A transport-only installer update must keep an explicitly configured
+		// address in sync with the requested listener mode.
+		if strings.Contains(v.AgentAddress, "://") {
+			if v.AgentTransport == "plain" && strings.HasPrefix(v.AgentAddress, "https://") {
+				v.AgentAddress = "http://" + strings.TrimPrefix(v.AgentAddress, "https://")
+			} else if v.AgentTransport == "tls" && strings.HasPrefix(v.AgentAddress, "http://") {
+				v.AgentAddress = "https://" + strings.TrimPrefix(v.AgentAddress, "http://")
+			}
+		}
 	}
 	if input.InstallerURL != nil {
 		v.InstallerURL = *input.InstallerURL

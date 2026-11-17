@@ -20,10 +20,19 @@ func controlEndpoint(raw string) (string, credentials.TransportCredentials, erro
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
 		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || (u.Scheme != "http" && u.Scheme != "https") {
-			return "", nil, errors.New("control endpoint must be http://host:port or https://host:port")
+			return "", nil, errors.New("control endpoint must be http://host[:port] or https://host[:port]")
 		}
 		target = u.Host
 		plain = u.Scheme == "http"
+		// URLs without a port use the standard port for their scheme. Keep
+		// requiring an explicit port for legacy endpoints without a scheme.
+		if u.Port() == "" && (strings.HasSuffix(target, "]") || !strings.Contains(target, ":")) {
+			port := "443"
+			if plain {
+				port = "80"
+			}
+			target = net.JoinHostPort(u.Hostname(), port)
+		}
 	}
 	host, port, err := net.SplitHostPort(target)
 	number, portErr := strconv.Atoi(port)

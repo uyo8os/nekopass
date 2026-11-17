@@ -141,4 +141,18 @@ func TestOnlineNodeReceivesEndpointAfterSettingsSave(t *testing.T) {
 	if err != nil || result.ControlEndpoint != "http://localhost:"+port {
 		t.Fatal("new endpoint not sent to connected node", result, err)
 	}
+	// Legacy agents require an explicit port even if the administrator omitted it.
+	v.AgentAddress = "http://agent.example.com"
+	securityStatus(t, f.request(f.admin, "admin/settings", "PUT", v), 200)
+	if err := stream.Send(report); err != nil {
+		t.Fatal(err)
+	}
+	result, err = stream.Recv()
+	if err != nil || result.ControlEndpoint != "http://agent.example.com:80" {
+		t.Fatal("standard port was not sent to legacy agent", result, err)
+	}
+	stored, err := f.s.readSettings(ctx)
+	if err != nil || stored.AgentAddress != v.AgentAddress || controlInstallServer(stored) != v.AgentAddress {
+		t.Fatal("installation address did not retain user input", stored.AgentAddress, err)
+	}
 }

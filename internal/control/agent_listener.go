@@ -28,8 +28,8 @@ type agentListener struct {
 
 func (l *agentListener) prepare(v SystemSettings) (agentListenPlan, error) {
 	p := agentListenPlan{address: l.address, mode: "proxy", credentials: insecure.NewCredentials()}
-	if v.AgentHost != "" {
-		p.endpoint = controlInstallServer(v)
+	if v.AgentAddress != "" || v.AgentHost != "" {
+		p.endpoint = controlAdvertisedServer(v)
 	}
 	if v.AgentTransport == "plain" {
 		p.mode = "plain"

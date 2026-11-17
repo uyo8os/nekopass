@@ -37,6 +37,7 @@ type SystemSettings struct {
 	TargetDenyCIDRs               []string          `json:"target_deny_cidrs"`
 	SiteName                      string            `json:"site_name"`
 	PanelURL                      string            `json:"panel_url"`
+	AgentAddress                  string            `json:"agent_address"`
 	AgentHost                     string            `json:"agent_host"`
 	AgentPort                     int               `json:"agent_port"`
 	AgentTransport                string            `json:"agent_transport"`
@@ -117,6 +118,11 @@ func validateSettings(v SystemSettings) error {
 	if v.PanelURL != "" && !panelURL(v.PanelURL) {
 		return errors.New("面板地址须为 HTTP 或 HTTPS 根地址，可包含端口")
 	}
+	if v.AgentAddress != "" {
+		if _, _, _, err := parseAgentAddress(v.AgentAddress, v.AgentTransport); err != nil {
+			return err
+		}
+	}
 	if v.AgentHost != "" && !ValidTarget(v.AgentHost) {
 		return errors.New("Agent 主机须为域名或 IP，不含协议和端口")
 	}
@@ -143,7 +149,7 @@ func panelURL(raw string) bool {
 	return httpsURL(raw, true) || strings.HasPrefix(raw, "http://") && httpsURL("https://"+strings.TrimPrefix(raw, "http://"), true)
 }
 func installReady(v SystemSettings) error {
-	if v.AgentHost == "" || v.InstallerURL == "" || v.ReleaseBaseURL == "" {
+	if v.AgentAddress == "" && v.AgentHost == "" || v.InstallerURL == "" || v.ReleaseBaseURL == "" {
 		return errors.New("请先配置 Agent 地址和安装文件下载地址")
 	}
 	if strings.Contains(strings.ToLower(v.InstallerURL), "your-oss.example.com") || strings.Contains(strings.ToLower(v.ReleaseBaseURL), "your-oss.example.com") {
@@ -173,6 +179,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		s.dbError(w, e)
 		return
 	}
+	if v.AgentAddress == "" && v.AgentHost != "" {
+		v.AgentAddress = net.JoinHostPort(v.AgentHost, strconv.Itoa(v.AgentPort))
+	}
 	status := s.telegramInfo()
 	if !v.Telegram.Enabled {
 		status = telegramStatus{State: "disabled"}
@@ -194,6 +203,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	v.PrivacyURL = strings.TrimSpace(v.PrivacyURL)
 	v.SiteName = strings.TrimSpace(v.SiteName)
+	v.AgentAddress = strings.TrimSpace(v.AgentAddress)
 	v.PanelURL = strings.TrimRight(v.PanelURL, "/")
 	v.ReleaseBaseURL = strings.TrimRight(v.ReleaseBaseURL, "/")
 	s.settingsMu.Lock()
@@ -201,6 +211,10 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	if e := validateSettings(v); e != nil {
 		fail(w, 400, e.Error())
 		return
+	}
+	if v.AgentAddress != "" {
+		_, host, port, _ := parseAgentAddress(v.AgentAddress, v.AgentTransport)
+		v.AgentHost, v.AgentPort = host, port
 	}
 	v.ProxyTrustedCIDRs, _ = networkpolicy.Normalize(v.ProxyTrustedCIDRs, 64)
 	v.TargetDenyCIDRs, _ = networkpolicy.Normalize(v.TargetDenyCIDRs, 256)
@@ -214,7 +228,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		previous = s.agentListener.current()
 		// Replacing an HTTPS proxy with direct HTTP changes the default public
 		// port to the actual backend port; explicitly edited NAT ports are retained.
-		if old.AgentTransport != "plain" && v.AgentTransport == "plain" && old.AgentPort == v.AgentPort {
+		if v.AgentAddress == "" && old.AgentTransport != "plain" && v.AgentTransport == "plain" && old.AgentPort == v.AgentPort {
 			_, port, _ := net.SplitHostPort(previous.address)
 			v.AgentPort, _ = strconv.Atoi(port)
 		}
@@ -356,12 +370,76 @@ func (s *Server) apiKeyUser(r *http.Request) (store.User, error) {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+
+// parseAgentAddress validates an externally reachable endpoint. An omitted URL
+// port means the standard port for the scheme; bare endpoints require a port.
+func parseAgentAddress(raw, transport string) (scheme, host string, port int, err error) {
+	invalid := func() (string, string, int, error) {
+		return "", "", 0, errors.New("Agent 通信地址须为 host:port 或 HTTP/HTTPS 根地址，且协议须与节点连接方式一致")
+	}
+	if raw == "" || strings.ContainsAny(raw, " \t\r\n\x00") {
+		return invalid()
+	}
+	scheme = "https"
+	if transport == "plain" {
+		scheme = "http"
+	}
+	var authority string
+	if strings.Contains(raw, "://") {
+		u, e := url.Parse(raw)
+		if e != nil || u.Scheme != scheme || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.Opaque != "" {
+			return invalid()
+		}
+		authority = u.Host
+		if u.Port() == "" && (strings.HasSuffix(authority, "]") || !strings.Contains(authority, ":")) {
+			defaultPort := "443"
+			if scheme == "http" {
+				defaultPort = "80"
+			}
+			authority = net.JoinHostPort(u.Hostname(), defaultPort)
+		}
+	} else {
+		authority = raw
+	}
+	host, portString, e := net.SplitHostPort(authority)
+	if e != nil || !ValidTarget(host) {
+		return invalid()
+	}
+	port, e = strconv.Atoi(portString)
+	if e != nil || port < 1 || port > 65535 {
+		return invalid()
+	}
+	return scheme, host, port, nil
+}
+
 func controlInstallServer(v SystemSettings) string {
+	if v.AgentAddress != "" {
+		if strings.Contains(v.AgentAddress, "://") {
+			return v.AgentAddress
+		}
+		scheme := "https://"
+		if v.AgentTransport == "plain" {
+			scheme = "http://"
+		}
+		return scheme + v.AgentAddress
+	}
 	scheme := "https://"
 	if v.AgentTransport == "plain" {
 		scheme = "http://"
 	}
 	return scheme + net.JoinHostPort(v.AgentHost, strconv.Itoa(v.AgentPort))
+}
+
+// Older agents require an explicit port even when the URL uses a standard port.
+func controlAdvertisedServer(v SystemSettings) string {
+	if v.AgentAddress == "" {
+		return controlInstallServer(v)
+	}
+	scheme, host, port, err := parseAgentAddress(v.AgentAddress, v.AgentTransport)
+	if err != nil {
+		return ""
+	}
+	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))
 }
 func installCommand(v SystemSettings, token string, _ bool) string {
 	args := []string{"--server", controlInstallServer(v), "--token", token, "--download-base", v.ReleaseBaseURL, "--version", v.AgentVersion}

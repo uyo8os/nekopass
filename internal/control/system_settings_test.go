@@ -188,3 +188,47 @@ func TestSettingsKeyAndInstallTicket(t *testing.T) {
 	check(request(aid, "admin/settings/api-key", "DELETE", nil, ""), 200)
 	check(request(0, "admin/nodes", "GET", nil, key.Key), 401)
 }
+
+func TestAgentAddress(t *testing.T) {
+	cases := []struct {
+		address, transport, install, advertised string
+		valid                                   bool
+	}{
+		{"https://agent.example.com", "tls", "https://agent.example.com", "https://agent.example.com:443", true},
+		{"https://agent.example.com/", "tls", "https://agent.example.com/", "https://agent.example.com:443", true},
+		{"http://agent.example.com", "plain", "http://agent.example.com", "http://agent.example.com:80", true},
+		{"127.0.0.1:9443", "tls", "https://127.0.0.1:9443", "https://127.0.0.1:9443", true},
+		{"[2001:db8::1]:9443", "plain", "http://[2001:db8::1]:9443", "http://[2001:db8::1]:9443", true},
+		{"https://[2001:db8::1]", "tls", "https://[2001:db8::1]", "https://[2001:db8::1]:443", true},
+		{"https://agent.example.com:8443", "tls", "https://agent.example.com:8443", "https://agent.example.com:8443", true},
+		{"agent.example.com", "tls", "", "", false},
+		{"https://agent.example.com", "plain", "", "", false},
+		{"http://agent.example.com", "tls", "", "", false},
+		{"https://agent.example.com/path", "tls", "", "", false},
+		{"https://agent.example.com?x=1", "tls", "", "", false},
+		{"https://user@agent.example.com", "tls", "", "", false},
+		{"https://agent.example.com:", "tls", "", "", false},
+		{"https://agent.example.com:65536", "tls", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.address+"/"+tc.transport, func(t *testing.T) {
+			v := defaultSettings()
+			v.AgentAddress, v.AgentTransport = tc.address, tc.transport
+			if err := validateSettings(v); (err == nil) != tc.valid {
+				t.Fatalf("validate: %v", err)
+			}
+			if !tc.valid {
+				return
+			}
+			if got := controlInstallServer(v); got != tc.install {
+				t.Errorf("install: %q", got)
+			}
+			if got := controlAdvertisedServer(v); got != tc.advertised {
+				t.Errorf("advertised: %q", got)
+			}
+			if !strings.Contains(installCommand(v, "token", false), "--server "+shellQuote(tc.install)) {
+				t.Error("command lost address")
+			}
+		})
+	}
+}
