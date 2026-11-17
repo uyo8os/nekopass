@@ -1,5 +1,5 @@
 syntax = "proto3";
-package nekopass.v1;
+package apacrerx.v1;
 option go_package = "github.com/nekopass/nekopass/internal/protocol";
 
 service Control { rpc Connect(stream AgentMessage) returns (stream ControlMessage); }

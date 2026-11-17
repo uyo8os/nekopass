@@ -174,27 +174,28 @@ func (x *RuleUsage) GetTraffic() int64 {
 }
 
 type AgentMessage struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Usage               []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
-	RuleUsage           []*RuleUsage           `protobuf:"bytes,2,rep,name=rule_usage,json=ruleUsage,proto3" json:"rule_usage,omitempty"`
-	RequestUsers        []int64                `protobuf:"varint,3,rep,packed,name=request_users,json=requestUsers,proto3" json:"request_users,omitempty"`
-	AppliedRevision     int64                  `protobuf:"varint,4,opt,name=applied_revision,json=appliedRevision,proto3" json:"applied_revision,omitempty"`
-	Error               string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
-	ActiveConnections   int64                  `protobuf:"varint,6,opt,name=active_connections,json=activeConnections,proto3" json:"active_connections,omitempty"`
-	InstanceId          string                 `protobuf:"bytes,7,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	Probe               *Probe                 `protobuf:"bytes,8,opt,name=probe,proto3" json:"probe,omitempty"`
-	ProtocolVersion     int32                  `protobuf:"varint,9,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	AcmeAck             int64                  `protobuf:"varint,10,opt,name=acme_ack,json=acmeAck,proto3" json:"acme_ack,omitempty"`
-	DdnsStatus          *DDNSStatus            `protobuf:"bytes,11,opt,name=ddns_status,json=ddnsStatus,proto3" json:"ddns_status,omitempty"`
-	AgentVersion        string                 `protobuf:"bytes,12,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
-	UpdateStatus        *UpdateStatus          `protobuf:"bytes,13,opt,name=update_status,json=updateStatus,proto3" json:"update_status,omitempty"`
-	UpdateSupported     bool                   `protobuf:"varint,14,opt,name=update_supported,json=updateSupported,proto3" json:"update_supported,omitempty"`
-	RestoreState        bool                   `protobuf:"varint,15,opt,name=restore_state,json=restoreState,proto3" json:"restore_state,omitempty"`
-	PublicIp            *PublicIPStatus        `protobuf:"bytes,16,opt,name=public_ip,json=publicIp,proto3" json:"public_ip,omitempty"`
-	IpRecoveryStatus    *IPRecoveryStatus      `protobuf:"bytes,17,opt,name=ip_recovery_status,json=ipRecoveryStatus,proto3" json:"ip_recovery_status,omitempty"`
-	DiagnosticResults   []*DiagnosticResult    `protobuf:"bytes,18,rep,name=diagnostic_results,json=diagnosticResults,proto3" json:"diagnostic_results,omitempty"`
-	SupportsConfigDelta bool                   `protobuf:"varint,19,opt,name=supports_config_delta,json=supportsConfigDelta,proto3" json:"supports_config_delta,omitempty"`
-	AppliedConfigToken  string                 `protobuf:"bytes,20,opt,name=applied_config_token,json=appliedConfigToken,proto3" json:"applied_config_token,omitempty"`
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Usage             []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
+	RuleUsage         []*RuleUsage           `protobuf:"bytes,2,rep,name=rule_usage,json=ruleUsage,proto3" json:"rule_usage,omitempty"`
+	RequestUsers      []int64                `protobuf:"varint,3,rep,packed,name=request_users,json=requestUsers,proto3" json:"request_users,omitempty"`
+	AppliedRevision   int64                  `protobuf:"varint,4,opt,name=applied_revision,json=appliedRevision,proto3" json:"applied_revision,omitempty"`
+	Error             string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	ActiveConnections int64                  `protobuf:"varint,6,opt,name=active_connections,json=activeConnections,proto3" json:"active_connections,omitempty"`
+	InstanceId        string                 `protobuf:"bytes,7,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Probe             *Probe                 `protobuf:"bytes,8,opt,name=probe,proto3" json:"probe,omitempty"`
+	ProtocolVersion   int32                  `protobuf:"varint,9,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	AcmeAck           int64                  `protobuf:"varint,10,opt,name=acme_ack,json=acmeAck,proto3" json:"acme_ack,omitempty"`
+	DdnsStatus        *DDNSStatus            `protobuf:"bytes,11,opt,name=ddns_status,json=ddnsStatus,proto3" json:"ddns_status,omitempty"`
+	AgentVersion      string                 `protobuf:"bytes,12,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	UpdateStatus      *UpdateStatus          `protobuf:"bytes,13,opt,name=update_status,json=updateStatus,proto3" json:"update_status,omitempty"`
+	UpdateSupported   bool                   `protobuf:"varint,14,opt,name=update_supported,json=updateSupported,proto3" json:"update_supported,omitempty"`
+	RestoreState      bool                   `protobuf:"varint,15,opt,name=restore_state,json=restoreState,proto3" json:"restore_state,omitempty"`
+	PublicIp          *PublicIPStatus        `protobuf:"bytes,16,opt,name=public_ip,json=publicIp,proto3" json:"public_ip,omitempty"`
+	IpRecoveryStatus  *IPRecoveryStatus      `protobuf:"bytes,17,opt,name=ip_recovery_status,json=ipRecoveryStatus,proto3" json:"ip_recovery_status,omitempty"`
+	DiagnosticResults []*DiagnosticResult    `protobuf:"bytes,18,rep,name=diagnostic_results,json=diagnosticResults,proto3" json:"diagnostic_results,omitempty"`
+	// A stream-local configuration cache is supported; empty token requests a full configuration.
+	SupportsConfigDelta bool   `protobuf:"varint,19,opt,name=supports_config_delta,json=supportsConfigDelta,proto3" json:"supports_config_delta,omitempty"`
+	AppliedConfigToken  string `protobuf:"bytes,20,opt,name=applied_config_token,json=appliedConfigToken,proto3" json:"applied_config_token,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1270,7 +1271,8 @@ type SharedTLSInbound struct {
 	HandshakeTimeoutSeconds int32    `protobuf:"varint,11,opt,name=handshake_timeout_seconds,json=handshakeTimeoutSeconds,proto3" json:"handshake_timeout_seconds,omitempty"`
 	// Deprecated: Marked as deprecated in api/control.proto.
 	MinTlsVersion string `protobuf:"bytes,12,opt,name=min_tls_version,json=minTlsVersion,proto3" json:"min_tls_version,omitempty"`
-	Passthrough   bool   `protobuf:"varint,13,opt,name=passthrough,proto3" json:"passthrough,omitempty"`
+	// Explicit capability: shared listeners only inspect SNI and replay TLS bytes.
+	Passthrough   bool `protobuf:"varint,13,opt,name=passthrough,proto3" json:"passthrough,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1744,10 +1746,12 @@ type ControlMessage struct {
 	ControlEndpoint   string                 `protobuf:"bytes,9,opt,name=control_endpoint,json=controlEndpoint,proto3" json:"control_endpoint,omitempty"`
 	StateRestore      *StateRestore          `protobuf:"bytes,10,opt,name=state_restore,json=stateRestore,proto3" json:"state_restore,omitempty"`
 	DiagnosticTasks   []*DiagnosticTask      `protobuf:"bytes,11,rep,name=diagnostic_tasks,json=diagnosticTasks,proto3" json:"diagnostic_tasks,omitempty"`
-	ConfigToken       string                 `protobuf:"bytes,12,opt,name=config_token,json=configToken,proto3" json:"config_token,omitempty"`
-	ConfigUnchanged   bool                   `protobuf:"varint,13,opt,name=config_unchanged,json=configUnchanged,proto3" json:"config_unchanged,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// A nonempty token identifies the full static configuration in this stream.
+	ConfigToken string `protobuf:"bytes,12,opt,name=config_token,json=configToken,proto3" json:"config_token,omitempty"`
+	// When true, static fields are omitted and must be restored from the matching token.
+	ConfigUnchanged bool `protobuf:"varint,13,opt,name=config_unchanged,json=configUnchanged,proto3" json:"config_unchanged,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ControlMessage) Reset() {
@@ -3843,7 +3847,7 @@ var File_api_control_proto protoreflect.FileDescriptor
 
 const file_api_control_proto_rawDesc = "" +
 	"\n" +
-	"\x11api/control.proto\x12\vnekopass.v1\"\x84\x02\n" +
+	"\x11api/control.proto\x12\vapacrerx.v1\"\x84\x02\n" +
 	"\x05Usage\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05spent\x18\x02 \x01(\x03R\x05spent\x12\x1a\n" +
@@ -3856,45 +3860,45 @@ const file_api_control_proto_rawDesc = "" +
 	"\rcharged_bytes\x18\b \x01(\x03R\fchargedBytes\">\n" +
 	"\tRuleUsage\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\x03R\x06ruleId\x12\x18\n" +
-	"\atraffic\x18\x02 \x01(\x03R\atraffic\"\xac\a\n" +
+	"\atraffic\x18\x02 \x01(\x03R\atraffic\"\xbf\a\n" +
 	"\fAgentMessage\x12(\n" +
-	"\x05usage\x18\x01 \x03(\v2\x12.nekopass.v1.UsageR\x05usage\x125\n" +
+	"\x05usage\x18\x01 \x03(\v2\x12.apacrerx.v1.UsageR\x05usage\x125\n" +
 	"\n" +
-	"rule_usage\x18\x02 \x03(\v2\x16.nekopass.v1.RuleUsageR\truleUsage\x12#\n" +
+	"rule_usage\x18\x02 \x03(\v2\x16.apacrerx.v1.RuleUsageR\truleUsage\x12#\n" +
 	"\rrequest_users\x18\x03 \x03(\x03R\frequestUsers\x12)\n" +
 	"\x10applied_revision\x18\x04 \x01(\x03R\x0fappliedRevision\x12\x14\n" +
 	"\x05error\x18\x05 \x01(\tR\x05error\x12-\n" +
 	"\x12active_connections\x18\x06 \x01(\x03R\x11activeConnections\x12\x1f\n" +
 	"\vinstance_id\x18\a \x01(\tR\n" +
 	"instanceId\x12(\n" +
-	"\x05probe\x18\b \x01(\v2\x12.nekopass.v1.ProbeR\x05probe\x12)\n" +
+	"\x05probe\x18\b \x01(\v2\x12.apacrerx.v1.ProbeR\x05probe\x12)\n" +
 	"\x10protocol_version\x18\t \x01(\x05R\x0fprotocolVersion\x12\x19\n" +
 	"\bacme_ack\x18\n" +
 	" \x01(\x03R\aacmeAck\x128\n" +
-	"\vddns_status\x18\v \x01(\v2\x17.nekopass.v1.DDNSStatusR\n" +
+	"\vddns_status\x18\v \x01(\v2\x17.apacrerx.v1.DDNSStatusR\n" +
 	"ddnsStatus\x12#\n" +
 	"\ragent_version\x18\f \x01(\tR\fagentVersion\x12>\n" +
-	"\rupdate_status\x18\r \x01(\v2\x19.nekopass.v1.UpdateStatusR\fupdateStatus\x12)\n" +
+	"\rupdate_status\x18\r \x01(\v2\x19.apacrerx.v1.UpdateStatusR\fupdateStatus\x12)\n" +
 	"\x10update_supported\x18\x0e \x01(\bR\x0fupdateSupported\x12#\n" +
 	"\rrestore_state\x18\x0f \x01(\bR\frestoreState\x128\n" +
-	"\tpublic_ip\x18\x10 \x01(\v2\x1b.nekopass.v1.PublicIPStatusR\bpublicIp\x12K\n" +
-	"\x12ip_recovery_status\x18\x11 \x01(\v2\x1d.nekopass.v1.IPRecoveryStatusR\x10ipRecoveryStatus\x129\n" +
-	"\x12diagnostic_results\x18\x12 \x03(\v2\x1d.nekopass.v1.DiagnosticResult\x122\n" +
+	"\tpublic_ip\x18\x10 \x01(\v2\x1b.apacrerx.v1.PublicIPStatusR\bpublicIp\x12K\n" +
+	"\x12ip_recovery_status\x18\x11 \x01(\v2\x1d.apacrerx.v1.IPRecoveryStatusR\x10ipRecoveryStatus\x12L\n" +
+	"\x12diagnostic_results\x18\x12 \x03(\v2\x1d.apacrerx.v1.DiagnosticResultR\x11diagnosticResults\x122\n" +
 	"\x15supports_config_delta\x18\x13 \x01(\bR\x13supportsConfigDelta\x120\n" +
-	"\x14applied_config_token\x18\x14 \x01(\tR\x12appliedConfigToken\"\x87\x01\n" +
-	"\x0eDiagnosticTask\x12\x0f\n" +
-	"\atask_id\x18\x01 \x01(\t\x12\x0f\n" +
-	"\arule_id\x18\x02 \x01(\x03\x12\f\n" +
-	"\x04kind\x18\x03 \x01(\t\x12\x14\n" +
-	"\ftarget_index\x18\x04 \x01(\x05\x12\x16\n" +
-	"\x0eegress_node_id\x18\x05 \x01(\x03\x12\x17\n" +
-	"\x0fingress_node_id\x18\x06 \x01(\x03\"W\n" +
-	"\x10DiagnosticResult\x12\x0f\n" +
-	"\atask_id\x18\x01 \x01(\t\x12\x0e\n" +
-	"\x06status\x18\x02 \x01(\t\x12\x12\n" +
+	"\x14applied_config_token\x18\x14 \x01(\tR\x12appliedConfigToken\"\xc7\x01\n" +
+	"\x0eDiagnosticTask\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x17\n" +
+	"\arule_id\x18\x02 \x01(\x03R\x06ruleId\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12!\n" +
+	"\ftarget_index\x18\x04 \x01(\x05R\vtargetIndex\x12$\n" +
+	"\x0eegress_node_id\x18\x05 \x01(\x03R\fegressNodeId\x12&\n" +
+	"\x0fingress_node_id\x18\x06 \x01(\x03R\ringressNodeId\"z\n" +
+	"\x10DiagnosticResult\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"latency_ms\x18\x03 \x01(\x03\x12\x0e\n" +
-	"\x06reason\x18\x04 \x01(\t\"[\n" +
+	"latency_ms\x18\x03 \x01(\x03R\tlatencyMs\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"[\n" +
 	"\x0ePublicIPStatus\x12\x12\n" +
 	"\x04ipv4\x18\x01 \x01(\tR\x04ipv4\x12\x12\n" +
 	"\x04ipv6\x18\x02 \x01(\tR\x04ipv6\x12!\n" +
@@ -3944,7 +3948,7 @@ const file_api_control_proto_rawDesc = "" +
 	"\ftunnel_token\x18\x13 \x01(\tR\vtunnelToken\x12&\n" +
 	"\x0fingress_node_id\x18\x14 \x01(\x03R\ringressNodeId\x12'\n" +
 	"\x0ftunnel_protocol\x18\x15 \x01(\tR\x0etunnelProtocol\x12.\n" +
-	"\x03tls\x18\x16 \x01(\v2\x1c.nekopass.v1.TLSClientConfigR\x03tls\x12\x1f\n" +
+	"\x03tls\x18\x16 \x01(\v2\x1c.apacrerx.v1.TLSClientConfigR\x03tls\x12\x1f\n" +
 	"\vquota_epoch\x18\x17 \x01(\x03R\n" +
 	"quotaEpoch\x12\x1a\n" +
 	"\bprotocol\x18\x18 \x01(\tR\bprotocol\x12$\n" +
@@ -3952,20 +3956,20 @@ const file_api_control_proto_rawDesc = "" +
 	"\tsni_names\x18\x1a \x03(\tR\bsniNames\x12\x19\n" +
 	"\btls_alpn\x18\x1b \x03(\tR\atlsAlpn\x12;\n" +
 	"\n" +
-	"origin_tls\x18\x1c \x01(\v2\x1c.nekopass.v1.OriginTLSConfigR\toriginTls\x12&\n" +
+	"origin_tls\x18\x1c \x01(\v2\x1c.apacrerx.v1.OriginTLSConfigR\toriginTls\x12&\n" +
 	"\x0fegress_group_id\x18\x1d \x01(\x03R\regressGroupId\x12:\n" +
-	"\fegress_peers\x18\x1e \x03(\v2\x17.nekopass.v1.EgressPeerR\vegressPeers\x12'\n" +
+	"\fegress_peers\x18\x1e \x03(\v2\x17.apacrerx.v1.EgressPeerR\vegressPeers\x12'\n" +
 	"\x0fegress_strategy\x18\x1f \x01(\tR\x0eegressStrategy\x126\n" +
 	"\x17health_interval_seconds\x18  \x01(\x05R\x15healthIntervalSeconds\x12'\n" +
 	"\x0fhealth_failures\x18! \x01(\x05R\x0ehealthFailures\x12)\n" +
 	"\x10health_successes\x18\" \x01(\x05R\x0fhealthSuccesses\x12!\n" +
 	"\ftraffic_rate\x18# \x01(\x03R\vtrafficRate\x12/\n" +
 	"\x13metering_configured\x18$ \x01(\bR\x12meteringConfigured\x121\n" +
-	"\x06random\x18% \x01(\v2\x19.nekopass.v1.RandomConfigR\x06random\x12=\n" +
+	"\x06random\x18% \x01(\v2\x19.apacrerx.v1.RandomConfigR\x06random\x12=\n" +
 	"\n" +
-	"congestion\x18& \x01(\v2\x1d.nekopass.v1.TunnelCongestionR\n" +
+	"congestion\x18& \x01(\v2\x1d.apacrerx.v1.TunnelCongestionR\n" +
 	"congestion\x12(\n" +
-	"\x03mux\x18' \x01(\v2\x16.nekopass.v1.MuxConfigR\x03mux\"\xa0\x03\n" +
+	"\x03mux\x18' \x01(\v2\x16.apacrerx.v1.MuxConfigR\x03mux\"\xa0\x03\n" +
 	"\n" +
 	"EgressPeer\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x03R\x06nodeId\x12\x12\n" +
@@ -3973,16 +3977,16 @@ const file_api_control_proto_rawDesc = "" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12\x14\n" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x12\x1a\n" +
 	"\bprotocol\x18\x05 \x01(\tR\bprotocol\x12.\n" +
-	"\x03tls\x18\x06 \x01(\v2\x1c.nekopass.v1.TLSClientConfigR\x03tls\x12\x16\n" +
+	"\x03tls\x18\x06 \x01(\v2\x1c.apacrerx.v1.TLSClientConfigR\x03tls\x12\x16\n" +
 	"\x06weight\x18\a \x01(\x05R\x06weight\x12\x18\n" +
 	"\astandby\x18\b \x01(\bR\astandby\x12!\n" +
 	"\ftraffic_rate\x18\t \x01(\x03R\vtrafficRate\x121\n" +
 	"\x06random\x18\n" +
-	" \x01(\v2\x19.nekopass.v1.RandomConfigR\x06random\x12=\n" +
+	" \x01(\v2\x19.apacrerx.v1.RandomConfigR\x06random\x12=\n" +
 	"\n" +
-	"congestion\x18\v \x01(\v2\x1d.nekopass.v1.TunnelCongestionR\n" +
+	"congestion\x18\v \x01(\v2\x1d.apacrerx.v1.TunnelCongestionR\n" +
 	"congestion\x12(\n" +
-	"\x03mux\x18\f \x01(\v2\x16.nekopass.v1.MuxConfigR\x03mux\"y\n" +
+	"\x03mux\x18\f \x01(\v2\x16.apacrerx.v1.MuxConfigR\x03mux\"y\n" +
 	"\x0fOriginTLSConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1f\n" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
@@ -4009,14 +4013,14 @@ const file_api_control_proto_rawDesc = "" +
 	"\x10ACMEHTTPEndpoint\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12:\n" +
 	"\n" +
-	"challenges\x18\x02 \x03(\v2\x1a.nekopass.v1.ACMEChallengeR\n" +
+	"challenges\x18\x02 \x03(\v2\x1a.apacrerx.v1.ACMEChallengeR\n" +
 	"challenges\"\x89\x01\n" +
 	"\n" +
 	"TunnelLink\x12&\n" +
 	"\x0fingress_node_id\x18\x01 \x01(\x03R\ringressNodeId\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12=\n" +
 	"\n" +
-	"congestion\x18\x03 \x01(\v2\x1d.nekopass.v1.TunnelCongestionR\n" +
+	"congestion\x18\x03 \x01(\v2\x1d.apacrerx.v1.TunnelCongestionR\n" +
 	"congestion\"f\n" +
 	"\x10TunnelCongestion\x12\x16\n" +
 	"\x06brutal\x18\x01 \x01(\bR\x06brutal\x12\x19\n" +
@@ -4038,20 +4042,20 @@ const file_api_control_proto_rawDesc = "" +
 	"\vquota_epoch\x18\x05 \x01(\x03R\n" +
 	"quotaEpoch\x12!\n" +
 	"\fexpires_unix\x18\x06 \x01(\x03R\vexpiresUnix\x12\x1a\n" +
-	"\bprotocol\x18\a \x01(\tR\bprotocol\"\x90\x05\n" +
+	"\bprotocol\x18\a \x01(\tR\bprotocol\"\xa1\x05\n" +
 	"\x0eControlMessage\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x03R\brevision\x12-\n" +
-	"\x05users\x18\x02 \x03(\v2\x17.nekopass.v1.UserPolicyR\x05users\x12'\n" +
-	"\x05rules\x18\x03 \x03(\v2\x11.nekopass.v1.RuleR\x05rules\x12+\n" +
-	"\x04node\x18\x04 \x01(\v2\x17.nekopass.v1.NodeConfigR\x04node\x12A\n" +
-	"\x12acknowledged_usage\x18\x05 \x03(\v2\x12.nekopass.v1.UsageR\x11acknowledgedUsage\x12:\n" +
-	"\ftunnel_links\x18\x06 \x03(\v2\x17.nekopass.v1.TunnelLinkR\vtunnelLinks\x12:\n" +
-	"\fegress_rules\x18\a \x03(\v2\x17.nekopass.v1.EgressRuleR\vegressRules\x122\n" +
-	"\x06update\x18\b \x01(\v2\x1a.nekopass.v1.UpdateRequestR\x06update\x12)\n" +
+	"\x05users\x18\x02 \x03(\v2\x17.apacrerx.v1.UserPolicyR\x05users\x12'\n" +
+	"\x05rules\x18\x03 \x03(\v2\x11.apacrerx.v1.RuleR\x05rules\x12+\n" +
+	"\x04node\x18\x04 \x01(\v2\x17.apacrerx.v1.NodeConfigR\x04node\x12A\n" +
+	"\x12acknowledged_usage\x18\x05 \x03(\v2\x12.apacrerx.v1.UsageR\x11acknowledgedUsage\x12:\n" +
+	"\ftunnel_links\x18\x06 \x03(\v2\x17.apacrerx.v1.TunnelLinkR\vtunnelLinks\x12:\n" +
+	"\fegress_rules\x18\a \x03(\v2\x17.apacrerx.v1.EgressRuleR\vegressRules\x122\n" +
+	"\x06update\x18\b \x01(\v2\x1a.apacrerx.v1.UpdateRequestR\x06update\x12)\n" +
 	"\x10control_endpoint\x18\t \x01(\tR\x0fcontrolEndpoint\x12>\n" +
 	"\rstate_restore\x18\n" +
-	" \x01(\v2\x19.nekopass.v1.StateRestoreR\fstateRestore\x125\n" +
-	"\x10diagnostic_tasks\x18\v \x03(\v2\x1b.nekopass.v1.DiagnosticTask\x12!\n" +
+	" \x01(\v2\x19.apacrerx.v1.StateRestoreR\fstateRestore\x12F\n" +
+	"\x10diagnostic_tasks\x18\v \x03(\v2\x1b.apacrerx.v1.DiagnosticTaskR\x0fdiagnosticTasks\x12!\n" +
 	"\fconfig_token\x18\f \x01(\tR\vconfigToken\x12)\n" +
 	"\x10config_unchanged\x18\r \x01(\bR\x0fconfigUnchanged\"\xb0\x02\n" +
 	"\x11UserStateBaseline\x12\x17\n" +
@@ -4068,8 +4072,8 @@ const file_api_control_proto_rawDesc = "" +
 	"\fStateRestore\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x124\n" +
-	"\x05users\x18\x02 \x03(\v2\x1e.nekopass.v1.UserStateBaselineR\x05users\x12,\n" +
-	"\x05rules\x18\x03 \x03(\v2\x16.nekopass.v1.RuleUsageR\x05rules\"I\n" +
+	"\x05users\x18\x02 \x03(\v2\x1e.apacrerx.v1.UserStateBaselineR\x05users\x12,\n" +
+	"\x05rules\x18\x03 \x03(\v2\x16.apacrerx.v1.RuleUsageR\x05rules\"I\n" +
 	"\rUpdateRequest\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\x03R\n" +
@@ -4101,24 +4105,24 @@ const file_api_control_proto_rawDesc = "" +
 	"\x12tunnel_listen_port\x18\r \x01(\x05R\x10tunnelListenPort\x12\x17\n" +
 	"\anode_id\x18\x0e \x01(\x03R\x06nodeId\x12'\n" +
 	"\x0ftunnel_protocol\x18\x0f \x01(\tR\x0etunnelProtocol\x12.\n" +
-	"\x03tls\x18\x10 \x01(\v2\x1c.nekopass.v1.TLSServerConfigR\x03tls\x12+\n" +
-	"\x04ddns\x18\x11 \x01(\v2\x17.nekopass.v1.DDNSConfigR\x04ddns\x12.\n" +
+	"\x03tls\x18\x10 \x01(\v2\x1c.apacrerx.v1.TLSServerConfigR\x03tls\x12+\n" +
+	"\x04ddns\x18\x11 \x01(\v2\x17.apacrerx.v1.DDNSConfigR\x04ddns\x12.\n" +
 	"\x13proxy_trusted_cidrs\x18\x12 \x03(\tR\x11proxyTrustedCidrs\x12*\n" +
 	"\x11target_deny_cidrs\x18\x13 \x03(\tR\x0ftargetDenyCidrs\x12/\n" +
 	"\x13security_configured\x18\x14 \x01(\bR\x12securityConfigured\x127\n" +
 	"\x18udp_idle_timeout_seconds\x18\x15 \x01(\x05R\x15udpIdleTimeoutSeconds\x12(\n" +
 	"\x10report_public_ip\x18\x16 \x01(\bR\x0ereportPublicIp\x12>\n" +
-	"\vip_recovery\x18\x17 \x01(\v2\x1d.nekopass.v1.IPRecoveryConfigR\n" +
+	"\vip_recovery\x18\x17 \x01(\v2\x1d.apacrerx.v1.IPRecoveryConfigR\n" +
 	"ipRecovery\x12@\n" +
-	"\ftls_inbounds\x18\x18 \x03(\v2\x1d.nekopass.v1.SharedTLSInboundR\vtlsInbounds\x12(\n" +
+	"\ftls_inbounds\x18\x18 \x03(\v2\x1d.apacrerx.v1.SharedTLSInboundR\vtlsInbounds\x12(\n" +
 	"\x10tls_inbound_only\x18\x19 \x01(\bR\x0etlsInboundOnly\x12:\n" +
-	"\tacme_http\x18\x1a \x03(\v2\x1d.nekopass.v1.ACMEHTTPEndpointR\bacmeHttp\x121\n" +
-	"\x06random\x18\x1b \x01(\v2\x19.nekopass.v1.RandomConfigR\x06random\x12(\n" +
+	"\tacme_http\x18\x1a \x03(\v2\x1d.apacrerx.v1.ACMEHTTPEndpointR\bacmeHttp\x121\n" +
+	"\x06random\x18\x1b \x01(\v2\x19.apacrerx.v1.RandomConfigR\x06random\x12(\n" +
 	"\x10bandwidth_up_bps\x18\x1c \x01(\x04R\x0ebandwidthUpBps\x12,\n" +
 	"\x12bandwidth_down_bps\x18\x1d \x01(\x04R\x10bandwidthDownBps\x12%\n" +
 	"\x0ebrutal_enabled\x18\x1e \x01(\bR\rbrutalEnabled\x129\n" +
 	"\x19client_tcp_brutal_enabled\x18\x1f \x01(\bR\x16clientTcpBrutalEnabled\x12(\n" +
-	"\x03mux\x18  \x01(\v2\x16.nekopass.v1.MuxConfigR\x03mux\"\x98\x04\n" +
+	"\x03mux\x18  \x01(\v2\x16.apacrerx.v1.MuxConfigR\x03mux\"\x98\x04\n" +
 	"\x10IPRecoveryConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1e\n" +
 	"\n" +
@@ -4224,7 +4228,7 @@ const file_api_control_proto_rawDesc = "" +
 	"\x0epadding_scheme\x18\f \x03(\tR\rpaddingScheme\x12\x1f\n" +
 	"\vmax_streams\x18\r \x01(\x05R\n" +
 	"maxStreams\x12A\n" +
-	"\fquic_padding\x18\x0e \x01(\v2\x1e.nekopass.v1.QUICPaddingConfigR\vquicPadding\"\xf7\x04\n" +
+	"\fquic_padding\x18\x0e \x01(\v2\x1e.apacrerx.v1.QUICPaddingConfigR\vquicPadding\"\xf7\x04\n" +
 	"\x0fTLSServerConfig\x12\x1f\n" +
 	"\vserver_name\x18\x01 \x01(\tR\n" +
 	"serverName\x12 \n" +
@@ -4238,7 +4242,7 @@ const file_api_control_proto_rawDesc = "" +
 	"maxStreams\x12%\n" +
 	"\x0echallenge_port\x18\b \x01(\x05R\rchallengePort\x12:\n" +
 	"\n" +
-	"challenges\x18\t \x03(\v2\x1a.nekopass.v1.ACMEChallengeR\n" +
+	"challenges\x18\t \x03(\v2\x1a.apacrerx.v1.ACMEChallengeR\n" +
 	"challenges\x12\x1d\n" +
 	"\n" +
 	"site_title\x18\n" +
@@ -4249,7 +4253,7 @@ const file_api_control_proto_rawDesc = "" +
 	"\x0epadding_scheme\x18\x0e \x03(\tR\rpaddingScheme\x12\x1f\n" +
 	"\vpublic_port\x18\x0f \x01(\x05R\n" +
 	"publicPort\x12A\n" +
-	"\fquic_padding\x18\x10 \x01(\v2\x1e.nekopass.v1.QUICPaddingConfigR\vquicPadding\"\xa9\x01\n" +
+	"\fquic_padding\x18\x10 \x01(\v2\x1e.apacrerx.v1.QUICPaddingConfigR\vquicPadding\"\xa9\x01\n" +
 	"\rACMEChallenge\x12\x16\n" +
 	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x14\n" +
 	"\x05token\x18\x02 \x01(\tR\x05token\x12+\n" +
@@ -4292,14 +4296,14 @@ const file_api_control_proto_rawDesc = "" +
 	"\vdisk_device\x18\x19 \x01(\tR\n" +
 	"diskDevice\x12\x17\n" +
 	"\aboot_id\x18\x1a \x01(\tR\x06bootId\x12H\n" +
-	"\x10network_counters\x18\x1b \x03(\v2\x1d.nekopass.v1.InterfaceTrafficR\x0fnetworkCounters\x124\n" +
+	"\x10network_counters\x18\x1b \x03(\v2\x1d.apacrerx.v1.InterfaceTrafficR\x0fnetworkCounters\x124\n" +
 	"\x16network_counters_ready\x18\x1c \x01(\bR\x14networkCountersReady\"\\\n" +
 	"\x10InterfaceTraffic\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\brx_bytes\x18\x02 \x01(\x03R\arxBytes\x12\x19\n" +
 	"\btx_bytes\x18\x03 \x01(\x03R\atxBytes2P\n" +
 	"\aControl\x12E\n" +
-	"\aConnect\x12\x19.nekopass.v1.AgentMessage\x1a\x1b.nekopass.v1.ControlMessage(\x010\x01B0Z.github.com/nekopass/nekopass/internal/protocolb\x06proto3"
+	"\aConnect\x12\x19.apacrerx.v1.AgentMessage\x1a\x1b.apacrerx.v1.ControlMessage(\x010\x01B0Z.github.com/nekopass/nekopass/internal/protocolb\x06proto3"
 
 var (
 	file_api_control_proto_rawDescOnce sync.Once
@@ -4315,85 +4319,85 @@ func file_api_control_proto_rawDescGZIP() []byte {
 
 var file_api_control_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_api_control_proto_goTypes = []any{
-	(*Usage)(nil),             // 0: nekopass.v1.Usage
-	(*RuleUsage)(nil),         // 1: nekopass.v1.RuleUsage
-	(*AgentMessage)(nil),      // 2: nekopass.v1.AgentMessage
-	(*DiagnosticTask)(nil),    // 3: nekopass.v1.DiagnosticTask
-	(*DiagnosticResult)(nil),  // 4: nekopass.v1.DiagnosticResult
-	(*PublicIPStatus)(nil),    // 5: nekopass.v1.PublicIPStatus
-	(*UserPolicy)(nil),        // 6: nekopass.v1.UserPolicy
-	(*Rule)(nil),              // 7: nekopass.v1.Rule
-	(*EgressPeer)(nil),        // 8: nekopass.v1.EgressPeer
-	(*OriginTLSConfig)(nil),   // 9: nekopass.v1.OriginTLSConfig
-	(*SharedTLSInbound)(nil),  // 10: nekopass.v1.SharedTLSInbound
-	(*ACMEHTTPEndpoint)(nil),  // 11: nekopass.v1.ACMEHTTPEndpoint
-	(*TunnelLink)(nil),        // 12: nekopass.v1.TunnelLink
-	(*TunnelCongestion)(nil),  // 13: nekopass.v1.TunnelCongestion
-	(*MuxConfig)(nil),         // 14: nekopass.v1.MuxConfig
-	(*EgressRule)(nil),        // 15: nekopass.v1.EgressRule
-	(*ControlMessage)(nil),    // 16: nekopass.v1.ControlMessage
-	(*UserStateBaseline)(nil), // 17: nekopass.v1.UserStateBaseline
-	(*StateRestore)(nil),      // 18: nekopass.v1.StateRestore
-	(*UpdateRequest)(nil),     // 19: nekopass.v1.UpdateRequest
-	(*UpdateStatus)(nil),      // 20: nekopass.v1.UpdateStatus
-	(*NodeConfig)(nil),        // 21: nekopass.v1.NodeConfig
-	(*IPRecoveryConfig)(nil),  // 22: nekopass.v1.IPRecoveryConfig
-	(*IPRecoveryStatus)(nil),  // 23: nekopass.v1.IPRecoveryStatus
-	(*DDNSConfig)(nil),        // 24: nekopass.v1.DDNSConfig
-	(*DDNSStatus)(nil),        // 25: nekopass.v1.DDNSStatus
-	(*RandomConfig)(nil),      // 26: nekopass.v1.RandomConfig
-	(*QUICPaddingConfig)(nil), // 27: nekopass.v1.QUICPaddingConfig
-	(*TLSClientConfig)(nil),   // 28: nekopass.v1.TLSClientConfig
-	(*TLSServerConfig)(nil),   // 29: nekopass.v1.TLSServerConfig
-	(*ACMEChallenge)(nil),     // 30: nekopass.v1.ACMEChallenge
-	(*Probe)(nil),             // 31: nekopass.v1.Probe
-	(*InterfaceTraffic)(nil),  // 32: nekopass.v1.InterfaceTraffic
+	(*Usage)(nil),             // 0: apacrerx.v1.Usage
+	(*RuleUsage)(nil),         // 1: apacrerx.v1.RuleUsage
+	(*AgentMessage)(nil),      // 2: apacrerx.v1.AgentMessage
+	(*DiagnosticTask)(nil),    // 3: apacrerx.v1.DiagnosticTask
+	(*DiagnosticResult)(nil),  // 4: apacrerx.v1.DiagnosticResult
+	(*PublicIPStatus)(nil),    // 5: apacrerx.v1.PublicIPStatus
+	(*UserPolicy)(nil),        // 6: apacrerx.v1.UserPolicy
+	(*Rule)(nil),              // 7: apacrerx.v1.Rule
+	(*EgressPeer)(nil),        // 8: apacrerx.v1.EgressPeer
+	(*OriginTLSConfig)(nil),   // 9: apacrerx.v1.OriginTLSConfig
+	(*SharedTLSInbound)(nil),  // 10: apacrerx.v1.SharedTLSInbound
+	(*ACMEHTTPEndpoint)(nil),  // 11: apacrerx.v1.ACMEHTTPEndpoint
+	(*TunnelLink)(nil),        // 12: apacrerx.v1.TunnelLink
+	(*TunnelCongestion)(nil),  // 13: apacrerx.v1.TunnelCongestion
+	(*MuxConfig)(nil),         // 14: apacrerx.v1.MuxConfig
+	(*EgressRule)(nil),        // 15: apacrerx.v1.EgressRule
+	(*ControlMessage)(nil),    // 16: apacrerx.v1.ControlMessage
+	(*UserStateBaseline)(nil), // 17: apacrerx.v1.UserStateBaseline
+	(*StateRestore)(nil),      // 18: apacrerx.v1.StateRestore
+	(*UpdateRequest)(nil),     // 19: apacrerx.v1.UpdateRequest
+	(*UpdateStatus)(nil),      // 20: apacrerx.v1.UpdateStatus
+	(*NodeConfig)(nil),        // 21: apacrerx.v1.NodeConfig
+	(*IPRecoveryConfig)(nil),  // 22: apacrerx.v1.IPRecoveryConfig
+	(*IPRecoveryStatus)(nil),  // 23: apacrerx.v1.IPRecoveryStatus
+	(*DDNSConfig)(nil),        // 24: apacrerx.v1.DDNSConfig
+	(*DDNSStatus)(nil),        // 25: apacrerx.v1.DDNSStatus
+	(*RandomConfig)(nil),      // 26: apacrerx.v1.RandomConfig
+	(*QUICPaddingConfig)(nil), // 27: apacrerx.v1.QUICPaddingConfig
+	(*TLSClientConfig)(nil),   // 28: apacrerx.v1.TLSClientConfig
+	(*TLSServerConfig)(nil),   // 29: apacrerx.v1.TLSServerConfig
+	(*ACMEChallenge)(nil),     // 30: apacrerx.v1.ACMEChallenge
+	(*Probe)(nil),             // 31: apacrerx.v1.Probe
+	(*InterfaceTraffic)(nil),  // 32: apacrerx.v1.InterfaceTraffic
 }
 var file_api_control_proto_depIdxs = []int32{
-	0,  // 0: nekopass.v1.AgentMessage.usage:type_name -> nekopass.v1.Usage
-	1,  // 1: nekopass.v1.AgentMessage.rule_usage:type_name -> nekopass.v1.RuleUsage
-	31, // 2: nekopass.v1.AgentMessage.probe:type_name -> nekopass.v1.Probe
-	25, // 3: nekopass.v1.AgentMessage.ddns_status:type_name -> nekopass.v1.DDNSStatus
-	20, // 4: nekopass.v1.AgentMessage.update_status:type_name -> nekopass.v1.UpdateStatus
-	5,  // 5: nekopass.v1.AgentMessage.public_ip:type_name -> nekopass.v1.PublicIPStatus
-	23, // 6: nekopass.v1.AgentMessage.ip_recovery_status:type_name -> nekopass.v1.IPRecoveryStatus
-	4,  // 7: nekopass.v1.AgentMessage.diagnostic_results:type_name -> nekopass.v1.DiagnosticResult
-	28, // 8: nekopass.v1.Rule.tls:type_name -> nekopass.v1.TLSClientConfig
-	9,  // 9: nekopass.v1.Rule.origin_tls:type_name -> nekopass.v1.OriginTLSConfig
-	8,  // 10: nekopass.v1.Rule.egress_peers:type_name -> nekopass.v1.EgressPeer
-	26, // 11: nekopass.v1.Rule.random:type_name -> nekopass.v1.RandomConfig
-	13, // 12: nekopass.v1.Rule.congestion:type_name -> nekopass.v1.TunnelCongestion
-	14, // 13: nekopass.v1.Rule.mux:type_name -> nekopass.v1.MuxConfig
-	28, // 14: nekopass.v1.EgressPeer.tls:type_name -> nekopass.v1.TLSClientConfig
-	26, // 15: nekopass.v1.EgressPeer.random:type_name -> nekopass.v1.RandomConfig
-	13, // 16: nekopass.v1.EgressPeer.congestion:type_name -> nekopass.v1.TunnelCongestion
-	14, // 17: nekopass.v1.EgressPeer.mux:type_name -> nekopass.v1.MuxConfig
-	30, // 18: nekopass.v1.ACMEHTTPEndpoint.challenges:type_name -> nekopass.v1.ACMEChallenge
-	13, // 19: nekopass.v1.TunnelLink.congestion:type_name -> nekopass.v1.TunnelCongestion
-	6,  // 20: nekopass.v1.ControlMessage.users:type_name -> nekopass.v1.UserPolicy
-	7,  // 21: nekopass.v1.ControlMessage.rules:type_name -> nekopass.v1.Rule
-	21, // 22: nekopass.v1.ControlMessage.node:type_name -> nekopass.v1.NodeConfig
-	0,  // 23: nekopass.v1.ControlMessage.acknowledged_usage:type_name -> nekopass.v1.Usage
-	12, // 24: nekopass.v1.ControlMessage.tunnel_links:type_name -> nekopass.v1.TunnelLink
-	15, // 25: nekopass.v1.ControlMessage.egress_rules:type_name -> nekopass.v1.EgressRule
-	19, // 26: nekopass.v1.ControlMessage.update:type_name -> nekopass.v1.UpdateRequest
-	18, // 27: nekopass.v1.ControlMessage.state_restore:type_name -> nekopass.v1.StateRestore
-	3,  // 28: nekopass.v1.ControlMessage.diagnostic_tasks:type_name -> nekopass.v1.DiagnosticTask
-	17, // 29: nekopass.v1.StateRestore.users:type_name -> nekopass.v1.UserStateBaseline
-	1,  // 30: nekopass.v1.StateRestore.rules:type_name -> nekopass.v1.RuleUsage
-	29, // 31: nekopass.v1.NodeConfig.tls:type_name -> nekopass.v1.TLSServerConfig
-	24, // 32: nekopass.v1.NodeConfig.ddns:type_name -> nekopass.v1.DDNSConfig
-	22, // 33: nekopass.v1.NodeConfig.ip_recovery:type_name -> nekopass.v1.IPRecoveryConfig
-	10, // 34: nekopass.v1.NodeConfig.tls_inbounds:type_name -> nekopass.v1.SharedTLSInbound
-	11, // 35: nekopass.v1.NodeConfig.acme_http:type_name -> nekopass.v1.ACMEHTTPEndpoint
-	26, // 36: nekopass.v1.NodeConfig.random:type_name -> nekopass.v1.RandomConfig
-	14, // 37: nekopass.v1.NodeConfig.mux:type_name -> nekopass.v1.MuxConfig
-	27, // 38: nekopass.v1.TLSClientConfig.quic_padding:type_name -> nekopass.v1.QUICPaddingConfig
-	30, // 39: nekopass.v1.TLSServerConfig.challenges:type_name -> nekopass.v1.ACMEChallenge
-	27, // 40: nekopass.v1.TLSServerConfig.quic_padding:type_name -> nekopass.v1.QUICPaddingConfig
-	32, // 41: nekopass.v1.Probe.network_counters:type_name -> nekopass.v1.InterfaceTraffic
-	2,  // 42: nekopass.v1.Control.Connect:input_type -> nekopass.v1.AgentMessage
-	16, // 43: nekopass.v1.Control.Connect:output_type -> nekopass.v1.ControlMessage
+	0,  // 0: apacrerx.v1.AgentMessage.usage:type_name -> apacrerx.v1.Usage
+	1,  // 1: apacrerx.v1.AgentMessage.rule_usage:type_name -> apacrerx.v1.RuleUsage
+	31, // 2: apacrerx.v1.AgentMessage.probe:type_name -> apacrerx.v1.Probe
+	25, // 3: apacrerx.v1.AgentMessage.ddns_status:type_name -> apacrerx.v1.DDNSStatus
+	20, // 4: apacrerx.v1.AgentMessage.update_status:type_name -> apacrerx.v1.UpdateStatus
+	5,  // 5: apacrerx.v1.AgentMessage.public_ip:type_name -> apacrerx.v1.PublicIPStatus
+	23, // 6: apacrerx.v1.AgentMessage.ip_recovery_status:type_name -> apacrerx.v1.IPRecoveryStatus
+	4,  // 7: apacrerx.v1.AgentMessage.diagnostic_results:type_name -> apacrerx.v1.DiagnosticResult
+	28, // 8: apacrerx.v1.Rule.tls:type_name -> apacrerx.v1.TLSClientConfig
+	9,  // 9: apacrerx.v1.Rule.origin_tls:type_name -> apacrerx.v1.OriginTLSConfig
+	8,  // 10: apacrerx.v1.Rule.egress_peers:type_name -> apacrerx.v1.EgressPeer
+	26, // 11: apacrerx.v1.Rule.random:type_name -> apacrerx.v1.RandomConfig
+	13, // 12: apacrerx.v1.Rule.congestion:type_name -> apacrerx.v1.TunnelCongestion
+	14, // 13: apacrerx.v1.Rule.mux:type_name -> apacrerx.v1.MuxConfig
+	28, // 14: apacrerx.v1.EgressPeer.tls:type_name -> apacrerx.v1.TLSClientConfig
+	26, // 15: apacrerx.v1.EgressPeer.random:type_name -> apacrerx.v1.RandomConfig
+	13, // 16: apacrerx.v1.EgressPeer.congestion:type_name -> apacrerx.v1.TunnelCongestion
+	14, // 17: apacrerx.v1.EgressPeer.mux:type_name -> apacrerx.v1.MuxConfig
+	30, // 18: apacrerx.v1.ACMEHTTPEndpoint.challenges:type_name -> apacrerx.v1.ACMEChallenge
+	13, // 19: apacrerx.v1.TunnelLink.congestion:type_name -> apacrerx.v1.TunnelCongestion
+	6,  // 20: apacrerx.v1.ControlMessage.users:type_name -> apacrerx.v1.UserPolicy
+	7,  // 21: apacrerx.v1.ControlMessage.rules:type_name -> apacrerx.v1.Rule
+	21, // 22: apacrerx.v1.ControlMessage.node:type_name -> apacrerx.v1.NodeConfig
+	0,  // 23: apacrerx.v1.ControlMessage.acknowledged_usage:type_name -> apacrerx.v1.Usage
+	12, // 24: apacrerx.v1.ControlMessage.tunnel_links:type_name -> apacrerx.v1.TunnelLink
+	15, // 25: apacrerx.v1.ControlMessage.egress_rules:type_name -> apacrerx.v1.EgressRule
+	19, // 26: apacrerx.v1.ControlMessage.update:type_name -> apacrerx.v1.UpdateRequest
+	18, // 27: apacrerx.v1.ControlMessage.state_restore:type_name -> apacrerx.v1.StateRestore
+	3,  // 28: apacrerx.v1.ControlMessage.diagnostic_tasks:type_name -> apacrerx.v1.DiagnosticTask
+	17, // 29: apacrerx.v1.StateRestore.users:type_name -> apacrerx.v1.UserStateBaseline
+	1,  // 30: apacrerx.v1.StateRestore.rules:type_name -> apacrerx.v1.RuleUsage
+	29, // 31: apacrerx.v1.NodeConfig.tls:type_name -> apacrerx.v1.TLSServerConfig
+	24, // 32: apacrerx.v1.NodeConfig.ddns:type_name -> apacrerx.v1.DDNSConfig
+	22, // 33: apacrerx.v1.NodeConfig.ip_recovery:type_name -> apacrerx.v1.IPRecoveryConfig
+	10, // 34: apacrerx.v1.NodeConfig.tls_inbounds:type_name -> apacrerx.v1.SharedTLSInbound
+	11, // 35: apacrerx.v1.NodeConfig.acme_http:type_name -> apacrerx.v1.ACMEHTTPEndpoint
+	26, // 36: apacrerx.v1.NodeConfig.random:type_name -> apacrerx.v1.RandomConfig
+	14, // 37: apacrerx.v1.NodeConfig.mux:type_name -> apacrerx.v1.MuxConfig
+	27, // 38: apacrerx.v1.TLSClientConfig.quic_padding:type_name -> apacrerx.v1.QUICPaddingConfig
+	30, // 39: apacrerx.v1.TLSServerConfig.challenges:type_name -> apacrerx.v1.ACMEChallenge
+	27, // 40: apacrerx.v1.TLSServerConfig.quic_padding:type_name -> apacrerx.v1.QUICPaddingConfig
+	32, // 41: apacrerx.v1.Probe.network_counters:type_name -> apacrerx.v1.InterfaceTraffic
+	2,  // 42: apacrerx.v1.Control.Connect:input_type -> apacrerx.v1.AgentMessage
+	16, // 43: apacrerx.v1.Control.Connect:output_type -> apacrerx.v1.ControlMessage
 	43, // [43:44] is the sub-list for method output_type
 	42, // [42:43] is the sub-list for method input_type
 	42, // [42:42] is the sub-list for extension type_name

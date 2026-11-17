@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Control_Connect_FullMethodName = "/nekopass.v1.Control/Connect"
+	Control_Connect_FullMethodName = "/apacrerx.v1.Control/Connect"
 )
 
 // ControlClient is the client API for Control service.
@@ -100,7 +100,7 @@ type Control_ConnectServer = grpc.BidiStreamingServer[AgentMessage, ControlMessa
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Control_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "nekopass.v1.Control",
+	ServiceName: "apacrerx.v1.Control",
 	HandlerType: (*ControlServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

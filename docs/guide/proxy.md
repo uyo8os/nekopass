@@ -24,6 +24,8 @@ location / {
 
 生产环境可用已有公共 CA 证书，或让 Nginx 终止 TLS。使用 Nginx 时，安装器选择 `proxy` 模式，在独立域名的 HTTPS `server` 中配置公共 CA 证书并启用 HTTP/2：
 
+节点运行时通过 gRPC 双向流接口 `/apacrerx.v1.Control/Connect` 与主控通信。系统设置中的 Agent 通信地址只填写域名和可选端口，Agent 会自动使用该接口路径。
+
 ```nginx
 location / {
     grpc_pass grpc://127.0.0.1:9443;
