@@ -33,31 +33,32 @@ import (
 )
 
 type Server struct {
-	telegramFactory func(string) telegram.API
-	telegramStatus  atomic.Pointer[telegramStatus]
-	panelProbe      atomic.Pointer[pb.Probe]
-	mailWorkers     chan struct{}
-	sendMail        func(context.Context, registration.SMTP, string, string, string) error
-	payments        *payment.Registry
-	Pool            *pgxpool.Pool
-	query           *store.Queries
-	loginMu         sync.Mutex
-	loginBuckets    map[string]*loginBucket
-	loginPruned     time.Time
-	loginBucketKey  [32]byte
-	loginWorkers    chan struct{}
-	trustedProxies  []*net.IPNet
-	releaseMu       sync.Mutex
-	releaseClient   *release.Client
-	releaseChecked  time.Time
-	releaseInfo     release.Info
-	releaseError    error
-	panelUpdateMu   sync.Mutex
-	panelUpdateDir  string
-	settingsMu      sync.Mutex
-	agentListener   *agentListener
-	diagnostics     diagnosticRegistry
-	nodeLocks       nodeLockManager
+	telegramFactory   func(string) telegram.API
+	telegramStatus    atomic.Pointer[telegramStatus]
+	panelProbe        atomic.Pointer[pb.Probe]
+	mailWorkers       chan struct{}
+	sendMail          func(context.Context, registration.SMTP, string, string, string) error
+	payments          *payment.Registry
+	Pool              *pgxpool.Pool
+	query             *store.Queries
+	loginMu           sync.Mutex
+	loginBuckets      map[string]*loginBucket
+	loginPruned       time.Time
+	loginBucketKey    [32]byte
+	loginWorkers      chan struct{}
+	trustedProxies    []*net.IPNet
+	releaseMu         sync.Mutex
+	releaseClient     *release.Client
+	releaseChecked    time.Time
+	releaseInfo       release.Info
+	releaseError      error
+	panelUpdateMu     sync.Mutex
+	panelUpdateDir    string
+	settingsMu        sync.Mutex
+	agentListener     *agentListener
+	diagnostics       diagnosticRegistry
+	nodeLocks         nodeLockManager
+	staticCacheBudget staticCacheBudget
 }
 type loginBucket struct {
 	limiter *rate.Limiter

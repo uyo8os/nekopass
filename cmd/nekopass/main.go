@@ -106,6 +106,7 @@ func run() error {
 	}
 	server.SetPanelUpdateDirectory(updateDir)
 	go server.RunSubscriptionClock(ctx)
+	go server.RunStaticConfigMaintenance(ctx)
 	go server.RunCertificateClock(ctx)
 	go server.RunTelegramBot(ctx)
 	go server.RunPanelProbe(ctx)

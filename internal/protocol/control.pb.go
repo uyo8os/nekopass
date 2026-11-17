@@ -174,27 +174,29 @@ func (x *RuleUsage) GetTraffic() int64 {
 }
 
 type AgentMessage struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Usage             []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
-	RuleUsage         []*RuleUsage           `protobuf:"bytes,2,rep,name=rule_usage,json=ruleUsage,proto3" json:"rule_usage,omitempty"`
-	RequestUsers      []int64                `protobuf:"varint,3,rep,packed,name=request_users,json=requestUsers,proto3" json:"request_users,omitempty"`
-	AppliedRevision   int64                  `protobuf:"varint,4,opt,name=applied_revision,json=appliedRevision,proto3" json:"applied_revision,omitempty"`
-	Error             string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
-	ActiveConnections int64                  `protobuf:"varint,6,opt,name=active_connections,json=activeConnections,proto3" json:"active_connections,omitempty"`
-	InstanceId        string                 `protobuf:"bytes,7,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
-	Probe             *Probe                 `protobuf:"bytes,8,opt,name=probe,proto3" json:"probe,omitempty"`
-	ProtocolVersion   int32                  `protobuf:"varint,9,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	AcmeAck           int64                  `protobuf:"varint,10,opt,name=acme_ack,json=acmeAck,proto3" json:"acme_ack,omitempty"`
-	DdnsStatus        *DDNSStatus            `protobuf:"bytes,11,opt,name=ddns_status,json=ddnsStatus,proto3" json:"ddns_status,omitempty"`
-	AgentVersion      string                 `protobuf:"bytes,12,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
-	UpdateStatus      *UpdateStatus          `protobuf:"bytes,13,opt,name=update_status,json=updateStatus,proto3" json:"update_status,omitempty"`
-	UpdateSupported   bool                   `protobuf:"varint,14,opt,name=update_supported,json=updateSupported,proto3" json:"update_supported,omitempty"`
-	RestoreState      bool                   `protobuf:"varint,15,opt,name=restore_state,json=restoreState,proto3" json:"restore_state,omitempty"`
-	PublicIp          *PublicIPStatus        `protobuf:"bytes,16,opt,name=public_ip,json=publicIp,proto3" json:"public_ip,omitempty"`
-	IpRecoveryStatus  *IPRecoveryStatus      `protobuf:"bytes,17,opt,name=ip_recovery_status,json=ipRecoveryStatus,proto3" json:"ip_recovery_status,omitempty"`
-	DiagnosticResults []*DiagnosticResult    `protobuf:"bytes,18,rep,name=diagnostic_results,json=diagnosticResults,proto3" json:"diagnostic_results,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Usage               []*Usage               `protobuf:"bytes,1,rep,name=usage,proto3" json:"usage,omitempty"`
+	RuleUsage           []*RuleUsage           `protobuf:"bytes,2,rep,name=rule_usage,json=ruleUsage,proto3" json:"rule_usage,omitempty"`
+	RequestUsers        []int64                `protobuf:"varint,3,rep,packed,name=request_users,json=requestUsers,proto3" json:"request_users,omitempty"`
+	AppliedRevision     int64                  `protobuf:"varint,4,opt,name=applied_revision,json=appliedRevision,proto3" json:"applied_revision,omitempty"`
+	Error               string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	ActiveConnections   int64                  `protobuf:"varint,6,opt,name=active_connections,json=activeConnections,proto3" json:"active_connections,omitempty"`
+	InstanceId          string                 `protobuf:"bytes,7,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	Probe               *Probe                 `protobuf:"bytes,8,opt,name=probe,proto3" json:"probe,omitempty"`
+	ProtocolVersion     int32                  `protobuf:"varint,9,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	AcmeAck             int64                  `protobuf:"varint,10,opt,name=acme_ack,json=acmeAck,proto3" json:"acme_ack,omitempty"`
+	DdnsStatus          *DDNSStatus            `protobuf:"bytes,11,opt,name=ddns_status,json=ddnsStatus,proto3" json:"ddns_status,omitempty"`
+	AgentVersion        string                 `protobuf:"bytes,12,opt,name=agent_version,json=agentVersion,proto3" json:"agent_version,omitempty"`
+	UpdateStatus        *UpdateStatus          `protobuf:"bytes,13,opt,name=update_status,json=updateStatus,proto3" json:"update_status,omitempty"`
+	UpdateSupported     bool                   `protobuf:"varint,14,opt,name=update_supported,json=updateSupported,proto3" json:"update_supported,omitempty"`
+	RestoreState        bool                   `protobuf:"varint,15,opt,name=restore_state,json=restoreState,proto3" json:"restore_state,omitempty"`
+	PublicIp            *PublicIPStatus        `protobuf:"bytes,16,opt,name=public_ip,json=publicIp,proto3" json:"public_ip,omitempty"`
+	IpRecoveryStatus    *IPRecoveryStatus      `protobuf:"bytes,17,opt,name=ip_recovery_status,json=ipRecoveryStatus,proto3" json:"ip_recovery_status,omitempty"`
+	DiagnosticResults   []*DiagnosticResult    `protobuf:"bytes,18,rep,name=diagnostic_results,json=diagnosticResults,proto3" json:"diagnostic_results,omitempty"`
+	SupportsConfigDelta bool                   `protobuf:"varint,19,opt,name=supports_config_delta,json=supportsConfigDelta,proto3" json:"supports_config_delta,omitempty"`
+	AppliedConfigToken  string                 `protobuf:"bytes,20,opt,name=applied_config_token,json=appliedConfigToken,proto3" json:"applied_config_token,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AgentMessage) Reset() {
@@ -351,6 +353,20 @@ func (x *AgentMessage) GetDiagnosticResults() []*DiagnosticResult {
 		return x.DiagnosticResults
 	}
 	return nil
+}
+
+func (x *AgentMessage) GetSupportsConfigDelta() bool {
+	if x != nil {
+		return x.SupportsConfigDelta
+	}
+	return false
+}
+
+func (x *AgentMessage) GetAppliedConfigToken() string {
+	if x != nil {
+		return x.AppliedConfigToken
+	}
+	return ""
 }
 
 type DiagnosticTask struct {
@@ -1728,6 +1744,8 @@ type ControlMessage struct {
 	ControlEndpoint   string                 `protobuf:"bytes,9,opt,name=control_endpoint,json=controlEndpoint,proto3" json:"control_endpoint,omitempty"`
 	StateRestore      *StateRestore          `protobuf:"bytes,10,opt,name=state_restore,json=stateRestore,proto3" json:"state_restore,omitempty"`
 	DiagnosticTasks   []*DiagnosticTask      `protobuf:"bytes,11,rep,name=diagnostic_tasks,json=diagnosticTasks,proto3" json:"diagnostic_tasks,omitempty"`
+	ConfigToken       string                 `protobuf:"bytes,12,opt,name=config_token,json=configToken,proto3" json:"config_token,omitempty"`
+	ConfigUnchanged   bool                   `protobuf:"varint,13,opt,name=config_unchanged,json=configUnchanged,proto3" json:"config_unchanged,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1837,6 +1855,20 @@ func (x *ControlMessage) GetDiagnosticTasks() []*DiagnosticTask {
 		return x.DiagnosticTasks
 	}
 	return nil
+}
+
+func (x *ControlMessage) GetConfigToken() string {
+	if x != nil {
+		return x.ConfigToken
+	}
+	return ""
+}
+
+func (x *ControlMessage) GetConfigUnchanged() bool {
+	if x != nil {
+		return x.ConfigUnchanged
+	}
+	return false
 }
 
 type UserStateBaseline struct {
@@ -3824,7 +3856,7 @@ const file_api_control_proto_rawDesc = "" +
 	"\rcharged_bytes\x18\b \x01(\x03R\fchargedBytes\">\n" +
 	"\tRuleUsage\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\x03R\x06ruleId\x12\x18\n" +
-	"\atraffic\x18\x02 \x01(\x03R\atraffic\"\xc6\x06\n" +
+	"\atraffic\x18\x02 \x01(\x03R\atraffic\"\xac\a\n" +
 	"\fAgentMessage\x12(\n" +
 	"\x05usage\x18\x01 \x03(\v2\x12.nekopass.v1.UsageR\x05usage\x125\n" +
 	"\n" +
@@ -3847,7 +3879,9 @@ const file_api_control_proto_rawDesc = "" +
 	"\rrestore_state\x18\x0f \x01(\bR\frestoreState\x128\n" +
 	"\tpublic_ip\x18\x10 \x01(\v2\x1b.nekopass.v1.PublicIPStatusR\bpublicIp\x12K\n" +
 	"\x12ip_recovery_status\x18\x11 \x01(\v2\x1d.nekopass.v1.IPRecoveryStatusR\x10ipRecoveryStatus\x129\n" +
-	"\x12diagnostic_results\x18\x12 \x03(\v2\x1d.nekopass.v1.DiagnosticResult\"\x87\x01\n" +
+	"\x12diagnostic_results\x18\x12 \x03(\v2\x1d.nekopass.v1.DiagnosticResult\x122\n" +
+	"\x15supports_config_delta\x18\x13 \x01(\bR\x13supportsConfigDelta\x120\n" +
+	"\x14applied_config_token\x18\x14 \x01(\tR\x12appliedConfigToken\"\x87\x01\n" +
 	"\x0eDiagnosticTask\x12\x0f\n" +
 	"\atask_id\x18\x01 \x01(\t\x12\x0f\n" +
 	"\arule_id\x18\x02 \x01(\x03\x12\f\n" +
@@ -4004,7 +4038,7 @@ const file_api_control_proto_rawDesc = "" +
 	"\vquota_epoch\x18\x05 \x01(\x03R\n" +
 	"quotaEpoch\x12!\n" +
 	"\fexpires_unix\x18\x06 \x01(\x03R\vexpiresUnix\x12\x1a\n" +
-	"\bprotocol\x18\a \x01(\tR\bprotocol\"\xc2\x04\n" +
+	"\bprotocol\x18\a \x01(\tR\bprotocol\"\x90\x05\n" +
 	"\x0eControlMessage\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x03R\brevision\x12-\n" +
 	"\x05users\x18\x02 \x03(\v2\x17.nekopass.v1.UserPolicyR\x05users\x12'\n" +
@@ -4017,7 +4051,9 @@ const file_api_control_proto_rawDesc = "" +
 	"\x10control_endpoint\x18\t \x01(\tR\x0fcontrolEndpoint\x12>\n" +
 	"\rstate_restore\x18\n" +
 	" \x01(\v2\x19.nekopass.v1.StateRestoreR\fstateRestore\x125\n" +
-	"\x10diagnostic_tasks\x18\v \x03(\v2\x1b.nekopass.v1.DiagnosticTask\"\xb0\x02\n" +
+	"\x10diagnostic_tasks\x18\v \x03(\v2\x1b.nekopass.v1.DiagnosticTask\x12!\n" +
+	"\fconfig_token\x18\f \x01(\tR\vconfigToken\x12)\n" +
+	"\x10config_unchanged\x18\r \x01(\bR\x0fconfigUnchanged\"\xb0\x02\n" +
 	"\x11UserStateBaseline\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1f\n" +
 	"\vquota_epoch\x18\x02 \x01(\x03R\n" +

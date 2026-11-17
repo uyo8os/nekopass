@@ -46,6 +46,8 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		return e
 	}
 	defer lock.release()
+	cache := &nodeStaticCache{budget: &s.Server.staticCacheBudget}
+	defer cache.clear()
 	exchangeCtx, cancelExchange := context.WithCancel(ctx)
 	defer cancelExchange()
 	go func() {
@@ -55,6 +57,7 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		case <-exchangeCtx.Done():
 		}
 	}()
+	lastFullToken := ""
 	for {
 		// Unblock a stream waiting for a report if the shared lock carrier dies.
 		type incoming struct {
@@ -78,10 +81,10 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if report.ProtocolVersion < 5 {
 			return status.Error(codes.FailedPrecondition, "upgrade Agent to protocol v5 or newer")
 		}
-		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 || len(report.DiagnosticResults) > 256 {
+		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 || len(report.DiagnosticResults) > 256 || len(report.AppliedConfigToken) > 128 {
 			return status.Error(codes.InvalidArgument, "invalid report")
 		}
-		result, e := s.exchangeWithLock(exchangeCtx, s.Server.Pool, node.ID, report, Hash(presentedToken), lock)
+		result, e := s.exchangeWithLock(exchangeCtx, s.Server.Pool, node.ID, report, Hash(presentedToken), lock, cache)
 		if e != nil {
 			select {
 			case <-lock.done:
@@ -94,6 +97,17 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 			result.ControlEndpoint = s.Server.controlEndpoint()
 		}
 		s.Server.diagnosticExchange(node.ID, report, result)
+		if report.SupportsConfigDelta {
+			token, err := staticConfigToken(result)
+			if err != nil {
+				return status.Error(codes.Internal, "cannot encode node configuration")
+			}
+			result.ConfigToken = token
+			if lastFullToken == token && report.AppliedConfigToken == token && !report.RestoreState && result.StateRestore == nil {
+				result.ConfigUnchanged = true
+				result.Node, result.Rules, result.TunnelLinks, result.EgressRules = nil, nil, nil, nil
+			}
+		}
 		// gRPC checks its send limit after marshaling. Reject an oversized
 		// snapshot here rather than allocating that entire wire buffer on each
 		// reconnect before gRPC returns the same size-limit error.
@@ -110,6 +124,9 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		case e = <-sent:
 			if e != nil {
 				return e
+			}
+			if report.SupportsConfigDelta && !result.ConfigUnchanged {
+				lastFullToken = result.ConfigToken
 			}
 		}
 	}
@@ -136,12 +153,12 @@ func configureControlPlanner(ctx context.Context, tx pgx.Tx) error {
 func (s *StreamServer) exchangeWithCredential(ctx context.Context, conn interface {
 	Begin(context.Context) (pgx.Tx, error)
 }, nodeID int64, r *pb.AgentMessage, expectedHash string) (*pb.ControlMessage, error) {
-	return s.exchangeWithLock(ctx, conn, nodeID, r, expectedHash, nil)
+	return s.exchangeWithLock(ctx, conn, nodeID, r, expectedHash, nil, nil)
 }
 
 func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 	Begin(context.Context) (pgx.Tx, error)
-}, nodeID int64, r *pb.AgentMessage, expectedHash string, lock *nodeStreamLock) (*pb.ControlMessage, error) {
+}, nodeID int64, r *pb.AgentMessage, expectedHash string, lock *nodeStreamLock, cache *nodeStaticCache) (*pb.ControlMessage, error) {
 	tx, e := conn.Begin(ctx)
 	if e != nil {
 		return nil, e
@@ -281,6 +298,22 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 			return nil, e
 		}
 	}
+	// Read the change marker before *any* static input, including system ACLs
+	// and node settings. Otherwise a concurrent edit can make old inputs appear
+	// to belong to a newer marker and persist them in the cache.
+	cacheEligible := cache != nil && r.SupportsConfigDelta && !r.RestoreState
+	var cacheVersion staticConfigVersion
+	var cacheBuiltAt time.Time
+	var cached *pb.ControlMessage
+	var cacheExpiry *time.Time
+	var cacheCandidate []byte
+	var cacheStable bool
+	if cacheEligible {
+		cacheVersion, cacheBuiltAt, e = readStaticConfigVersion(ctx, tx)
+		if e != nil {
+			return nil, e
+		}
+	}
 	out := &pb.ControlMessage{Node: &pb.NodeConfig{}, AcknowledgedUsage: r.Usage}
 	settings, e := readSystemSettings(ctx, tx)
 	if e != nil {
@@ -329,89 +362,33 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 	if e != nil {
 		return nil, e
 	}
-	rows, e = tx.Query(ctx, nodeIngressRulesSQL, nodeID, pb.MultiIngressVersion)
-	if e != nil {
-		return nil, e
-	}
-	for rows.Next() {
-		v := &pb.Rule{}
-		var targets, trusted, sni, alpn, origin []byte
-		if e = rows.Scan(&v.Id, &v.UserId, &v.ListenHost, &v.ListenPort, &v.TargetHost, &v.TargetPort, &v.Enabled, &targets, &v.Balance, &v.SpeedBps, &v.IpLimit, &v.ConnectionLimit, &v.ProxyAccept, &v.ProxySend, &trusted, &v.EgressNodeId, &v.TunnelHost, &v.TunnelPort, &v.TunnelToken, &v.TunnelProtocol, &v.QuotaEpoch, &v.Protocol, &v.TlsInboundId, &sni, &alpn, &origin, &v.EgressGroupId); e != nil {
-			rows.Close()
-			return nil, e
-		}
-		if e = json.Unmarshal(targets, &v.Targets); e != nil {
-			rows.Close()
-			return nil, e
-		}
-		if e = json.Unmarshal(trusted, &v.ProxyTrustedCidrs); e != nil {
-			rows.Close()
-			return nil, e
-		}
-		var originConfig tlsinbound.OriginTLS
-		if e = json.Unmarshal(sni, &v.SniNames); e == nil {
-			e = json.Unmarshal(alpn, &v.TlsAlpn)
-		}
-		if e == nil {
-			e = json.Unmarshal(origin, &originConfig)
-		}
+	// The stream-local cache holds only the configuration before metering.
+	// Dynamic policies, ACKs and commands are still rebuilt on every exchange.
+	if cacheEligible {
+		var current staticConfigVersion
+		var now time.Time
+		current, now, e = readStaticConfigVersion(ctx, tx)
 		if e != nil {
-			rows.Close()
 			return nil, e
 		}
-		v.OriginTls = &pb.OriginTLSConfig{Enabled: originConfig.Enabled, ServerName: originConfig.ServerName, RootCa: originConfig.RootCA, Alpn: originConfig.ALPN}
-		if v.TlsInboundId != 0 && r.ProtocolVersion < 21 || originConfig.Enabled && r.ProtocolVersion < 20 {
-			v.Enabled = false
+		cacheStable = current == cacheVersion
+		if cacheStable {
+			cached = cache.get(cacheVersion, now, r.ProtocolVersion)
+		} else {
+			cache.clear()
 		}
-		v.ProxyTrustedCidrs = settings.ProxyTrustedCIDRs
-		if v.ProxyAccept != "off" && len(settings.ProxyTrustedCIDRs) == 0 {
-			v.Enabled = false
-		}
-		v.IngressNodeId = nodeID
-		// Older Agents cannot detect both PROXY header versions. Keep other rules
-		// and the update channel usable, but never downgrade an enabled receiver.
-		if v.ProxyAccept == "auto" && r.ProtocolVersion < 10 {
-			v.Enabled = false
-		}
-		if v.EgressNodeId != 0 && (v.TunnelHost == "" || v.TunnelToken == "" || v.TunnelPort == 0) {
-			v.Enabled = false
-		}
-		if v.Protocol != "tcp" && r.ProtocolVersion < 16 {
-			v.Enabled = false
-		}
-		out.Rules = append(out.Rules, v)
 	}
-	e = rows.Err()
-	rows.Close()
-	if e != nil {
-		return nil, e
-	}
-	if out.Node.TunnelExitEnabled {
-		rows, e = tx.Query(ctx, `SELECT l.ingress_node_id,l.token FROM node_tunnel_links l JOIN nodes ingress ON ingress.id=l.ingress_node_id AND ingress.ingress_enabled WHERE l.egress_node_id=$1 ORDER BY l.ingress_node_id`, nodeID)
+	if cached != nil {
+		out.Node, out.Rules, out.TunnelLinks, out.EgressRules = cached.Node, cached.Rules, cached.TunnelLinks, cached.EgressRules
+	} else {
+		rows, e = tx.Query(ctx, nodeIngressRulesSQL, nodeID, pb.MultiIngressVersion)
 		if e != nil {
 			return nil, e
 		}
 		for rows.Next() {
-			v := &pb.TunnelLink{}
-			if e = rows.Scan(&v.IngressNodeId, &v.Token); e != nil {
-				rows.Close()
-				return nil, e
-			}
-			out.TunnelLinks = append(out.TunnelLinks, v)
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			return nil, e
-		}
-		rows, e = tx.Query(ctx, nodeEgressRulesSQL, nodeID, r.ProtocolVersion, pb.MultiIngressVersion)
-		if e != nil {
-			return nil, e
-		}
-		for rows.Next() {
-			v := &pb.EgressRule{}
-			var targets []byte
-			if e = rows.Scan(&v.RuleId, &v.IngressNodeId, &targets, &v.UserId, &v.QuotaEpoch, &v.ExpiresUnix, &v.Protocol); e != nil {
+			v := &pb.Rule{}
+			var targets, trusted, sni, alpn, origin []byte
+			if e = rows.Scan(&v.Id, &v.UserId, &v.ListenHost, &v.ListenPort, &v.TargetHost, &v.TargetPort, &v.Enabled, &targets, &v.Balance, &v.SpeedBps, &v.IpLimit, &v.ConnectionLimit, &v.ProxyAccept, &v.ProxySend, &trusted, &v.EgressNodeId, &v.TunnelHost, &v.TunnelPort, &v.TunnelToken, &v.TunnelProtocol, &v.QuotaEpoch, &v.Protocol, &v.TlsInboundId, &sni, &alpn, &origin, &v.EgressGroupId); e != nil {
 				rows.Close()
 				return nil, e
 			}
@@ -419,143 +396,238 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 				rows.Close()
 				return nil, e
 			}
-			if v.Protocol != "tcp" && r.ProtocolVersion < 16 {
-				continue
-			}
-			out.EgressRules = append(out.EgressRules, v)
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			return nil, e
-		}
-	}
-	if e = appendTLSInboundControl(ctx, tx, nodeID, out); e != nil {
-		return nil, e
-	}
-	for _, rule := range out.Rules {
-		if out.Node.TlsInboundOnly && rule.Protocol == "tcp" && rule.TlsInboundId == 0 {
-			rule.Enabled = false
-		}
-	}
-	originalRuleCount := len(out.Rules)
-	groupDrafts, groupErr := appendGroupDrafts(ctx, tx, out)
-	if groupErr != nil {
-		return nil, groupErr
-	}
-	if e = appendTLSControl(ctx, tx, nodeID, out); e != nil {
-		return nil, e
-	}
-	if e = appendRandomControl(ctx, tx, nodeID, out); e != nil {
-		return nil, e
-	}
-	// Legacy agents terminate TLS. Do not send them shared listener resources.
-	if e = appendBrutalControl(ctx, tx, r.ProtocolVersion, out); e != nil {
-		return nil, e
-	}
-	if e = appendMuxControl(ctx, tx, r.ProtocolVersion, out); e != nil {
-		return nil, e
-	}
-	if r.ProtocolVersion < 21 {
-		out.Node.TlsInbounds = nil
-	}
-
-	// Resolve all distinct exit capabilities in one round trip. Group rules may
-	// expand into many drafts, so querying once per exit adds work every heartbeat.
-	tlsVersions := map[int64]int{}
-	var exitNodeIDs []int64
-	for _, rule := range out.Rules {
-		if rule.EgressNodeId != 0 {
-			if _, exists := tlsVersions[rule.EgressNodeId]; !exists {
-				tlsVersions[rule.EgressNodeId] = 0
-				exitNodeIDs = append(exitNodeIDs, rule.EgressNodeId)
-			}
-		}
-	}
-	if len(exitNodeIDs) > 0 {
-		rows, e = tx.Query(ctx, "SELECT id,protocol_version FROM nodes WHERE id=ANY($1::bigint[])", exitNodeIDs)
-		if e != nil {
-			return nil, e
-		}
-		found := 0
-		for rows.Next() {
-			var id int64
-			var version int
-			if e = rows.Scan(&id, &version); e != nil {
+			if e = json.Unmarshal(trusted, &v.ProxyTrustedCidrs); e != nil {
 				rows.Close()
 				return nil, e
 			}
-			tlsVersions[id] = version
-			found++
+			var originConfig tlsinbound.OriginTLS
+			if e = json.Unmarshal(sni, &v.SniNames); e == nil {
+				e = json.Unmarshal(alpn, &v.TlsAlpn)
+			}
+			if e == nil {
+				e = json.Unmarshal(origin, &originConfig)
+			}
+			if e != nil {
+				rows.Close()
+				return nil, e
+			}
+			v.OriginTls = &pb.OriginTLSConfig{Enabled: originConfig.Enabled, ServerName: originConfig.ServerName, RootCa: originConfig.RootCA, Alpn: originConfig.ALPN}
+			if v.TlsInboundId != 0 && r.ProtocolVersion < 21 || originConfig.Enabled && r.ProtocolVersion < 20 {
+				v.Enabled = false
+			}
+			v.ProxyTrustedCidrs = settings.ProxyTrustedCIDRs
+			if v.ProxyAccept != "off" && len(settings.ProxyTrustedCIDRs) == 0 {
+				v.Enabled = false
+			}
+			v.IngressNodeId = nodeID
+			// Older Agents cannot detect both PROXY header versions. Keep other rules
+			// and the update channel usable, but never downgrade an enabled receiver.
+			if v.ProxyAccept == "auto" && r.ProtocolVersion < 10 {
+				v.Enabled = false
+			}
+			if v.EgressNodeId != 0 && (v.TunnelHost == "" || v.TunnelToken == "" || v.TunnelPort == 0) {
+				v.Enabled = false
+			}
+			if v.Protocol != "tcp" && r.ProtocolVersion < 16 {
+				v.Enabled = false
+			}
+			out.Rules = append(out.Rules, v)
 		}
 		e = rows.Err()
 		rows.Close()
 		if e != nil {
 			return nil, e
 		}
-		if found != len(exitNodeIDs) {
-			return nil, pgx.ErrNoRows
+		if out.Node.TunnelExitEnabled {
+			rows, e = tx.Query(ctx, `SELECT l.ingress_node_id,l.token FROM node_tunnel_links l JOIN nodes ingress ON ingress.id=l.ingress_node_id AND ingress.ingress_enabled WHERE l.egress_node_id=$1 ORDER BY l.ingress_node_id`, nodeID)
+			if e != nil {
+				return nil, e
+			}
+			for rows.Next() {
+				v := &pb.TunnelLink{}
+				if e = rows.Scan(&v.IngressNodeId, &v.Token); e != nil {
+					rows.Close()
+					return nil, e
+				}
+				out.TunnelLinks = append(out.TunnelLinks, v)
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return nil, e
+			}
+			rows, e = tx.Query(ctx, nodeEgressRulesSQL, nodeID, r.ProtocolVersion, pb.MultiIngressVersion)
+			if e != nil {
+				return nil, e
+			}
+			for rows.Next() {
+				v := &pb.EgressRule{}
+				var targets []byte
+				if e = rows.Scan(&v.RuleId, &v.IngressNodeId, &targets, &v.UserId, &v.QuotaEpoch, &v.ExpiresUnix, &v.Protocol); e != nil {
+					rows.Close()
+					return nil, e
+				}
+				if e = json.Unmarshal(targets, &v.Targets); e != nil {
+					rows.Close()
+					return nil, e
+				}
+				if v.Protocol != "tcp" && r.ProtocolVersion < 16 {
+					continue
+				}
+				out.EgressRules = append(out.EgressRules, v)
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return nil, e
+			}
 		}
-	}
-	for _, rule := range out.Rules {
-		if rule.EgressNodeId != 0 {
-			version := tlsVersions[rule.EgressNodeId]
-			if rule.Protocol != "tcp" && version < 16 {
-				rule.Enabled = false
-			}
-			if !encryptedRuleSupported(rule, r.ProtocolVersion, int32(version)) {
-				rule.Enabled = false
-			}
-			if rule.TunnelProtocol == "tls_tcp" && rule.Tls.GetPaddingEnabled() && (r.ProtocolVersion < 23 || version < 23) {
-				rule.Enabled = false
-			}
-			if rule.TunnelProtocol == "tls_h3" && rule.Tls.GetQuicPadding().GetEnabled() && (r.ProtocolVersion < 29 || version < 29) {
-				rule.Enabled = false
-			}
-			if rule.Tls != nil {
-				rule.Tls.SequenceAuth = r.ProtocolVersion >= 14 && version >= 14
-			}
-			if len(settings.TargetDenyCIDRs) > 0 && version < 14 {
-				rule.Enabled = false
-			}
-			if r.ProtocolVersion < int32(tunnel.MinimumVersion(rule.TunnelProtocol)) || version < tunnel.MinimumVersion(rule.TunnelProtocol) {
-				rule.Enabled = false
-			}
+		if e = appendTLSInboundControl(ctx, tx, nodeID, out); e != nil {
+			return nil, e
 		}
-	}
-	finishGroupDrafts(out, groupDrafts, r.ProtocolVersion, originalRuleCount)
-	if r.ProtocolVersion < pb.EncryptedTunnelVersion && encryptedWireRequired(out.Node.TunnelProtocol, out.Node.Tls.GetPaddingEnabled(), out.Node.Mux.GetEnabled()) {
-		out.Node.TunnelExitEnabled = false
-		out.TunnelLinks = nil
-		out.EgressRules = nil
-	}
-	if out.Node.TunnelProtocol == "tls_tcp" && out.Node.Tls.GetPaddingEnabled() && r.ProtocolVersion < 23 {
-		out.Node.TunnelExitEnabled = false
-	}
-	if out.Node.TunnelProtocol == "tls_h3" && out.Node.Tls.GetQuicPadding().GetEnabled() && r.ProtocolVersion < 29 {
-		out.Node.TunnelExitEnabled = false
-		out.TunnelLinks = nil
-		out.EgressRules = nil
-	}
-	if out.Node.TunnelExitEnabled && (tunnel.UDP(out.Node.TunnelProtocol) || tunnel.Random(out.Node.TunnelProtocol) || tunnel.H3(out.Node.TunnelProtocol)) && r.ProtocolVersion < int32(tunnel.MinimumVersion(out.Node.TunnelProtocol)) {
-		out.Node.TunnelExitEnabled = false
-		out.TunnelLinks = nil
-		out.EgressRules = nil
-	}
-	if out.Node.TunnelExitEnabled && (out.Node.TunnelProtocol == "tls_tcp" || out.Node.TunnelProtocol == "plain_h2") && r.ProtocolVersion < 13 {
-		out.Node.TunnelExitEnabled = false
-		out.TunnelLinks = nil
-		out.EgressRules = nil
-	}
-	// Older agents cannot enforce target ACLs; retain probe/update control, fail forwarding closed.
-	if len(settings.TargetDenyCIDRs) > 0 && r.ProtocolVersion < 14 {
-		out.Node.Enabled = false
-		out.Node.TunnelExitEnabled = false
 		for _, rule := range out.Rules {
-			rule.Enabled = false
+			if out.Node.TlsInboundOnly && rule.Protocol == "tcp" && rule.TlsInboundId == 0 {
+				rule.Enabled = false
+			}
 		}
-		out.EgressRules = nil
-		out.TunnelLinks = nil
+		originalRuleCount := len(out.Rules)
+		groupDrafts, groupErr := appendGroupDrafts(ctx, tx, out)
+		if groupErr != nil {
+			return nil, groupErr
+		}
+		if e = appendTLSControl(ctx, tx, nodeID, out); e != nil {
+			return nil, e
+		}
+		if e = appendRandomControl(ctx, tx, nodeID, out); e != nil {
+			return nil, e
+		}
+		// Legacy agents terminate TLS. Do not send them shared listener resources.
+		if e = appendBrutalControl(ctx, tx, r.ProtocolVersion, out); e != nil {
+			return nil, e
+		}
+		if e = appendMuxControl(ctx, tx, r.ProtocolVersion, out); e != nil {
+			return nil, e
+		}
+		if r.ProtocolVersion < 21 {
+			out.Node.TlsInbounds = nil
+		}
+
+		// Resolve all distinct exit capabilities in one round trip. Group rules may
+		// expand into many drafts, so querying once per exit adds work every heartbeat.
+		tlsVersions := map[int64]int{}
+		var exitNodeIDs []int64
+		for _, rule := range out.Rules {
+			if rule.EgressNodeId != 0 {
+				if _, exists := tlsVersions[rule.EgressNodeId]; !exists {
+					tlsVersions[rule.EgressNodeId] = 0
+					exitNodeIDs = append(exitNodeIDs, rule.EgressNodeId)
+				}
+			}
+		}
+		if len(exitNodeIDs) > 0 {
+			rows, e = tx.Query(ctx, "SELECT id,protocol_version FROM nodes WHERE id=ANY($1::bigint[])", exitNodeIDs)
+			if e != nil {
+				return nil, e
+			}
+			found := 0
+			for rows.Next() {
+				var id int64
+				var version int
+				if e = rows.Scan(&id, &version); e != nil {
+					rows.Close()
+					return nil, e
+				}
+				tlsVersions[id] = version
+				found++
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return nil, e
+			}
+			if found != len(exitNodeIDs) {
+				return nil, pgx.ErrNoRows
+			}
+		}
+		for _, rule := range out.Rules {
+			if rule.EgressNodeId != 0 {
+				version := tlsVersions[rule.EgressNodeId]
+				if rule.Protocol != "tcp" && version < 16 {
+					rule.Enabled = false
+				}
+				if !encryptedRuleSupported(rule, r.ProtocolVersion, int32(version)) {
+					rule.Enabled = false
+				}
+				if rule.TunnelProtocol == "tls_tcp" && rule.Tls.GetPaddingEnabled() && (r.ProtocolVersion < 23 || version < 23) {
+					rule.Enabled = false
+				}
+				if rule.TunnelProtocol == "tls_h3" && rule.Tls.GetQuicPadding().GetEnabled() && (r.ProtocolVersion < 29 || version < 29) {
+					rule.Enabled = false
+				}
+				if rule.Tls != nil {
+					rule.Tls.SequenceAuth = r.ProtocolVersion >= 14 && version >= 14
+				}
+				if len(settings.TargetDenyCIDRs) > 0 && version < 14 {
+					rule.Enabled = false
+				}
+				if r.ProtocolVersion < int32(tunnel.MinimumVersion(rule.TunnelProtocol)) || version < tunnel.MinimumVersion(rule.TunnelProtocol) {
+					rule.Enabled = false
+				}
+			}
+		}
+		finishGroupDrafts(out, groupDrafts, r.ProtocolVersion, originalRuleCount)
+		if r.ProtocolVersion < pb.EncryptedTunnelVersion && encryptedWireRequired(out.Node.TunnelProtocol, out.Node.Tls.GetPaddingEnabled(), out.Node.Mux.GetEnabled()) {
+			out.Node.TunnelExitEnabled = false
+			out.TunnelLinks = nil
+			out.EgressRules = nil
+		}
+		if out.Node.TunnelProtocol == "tls_tcp" && out.Node.Tls.GetPaddingEnabled() && r.ProtocolVersion < 23 {
+			out.Node.TunnelExitEnabled = false
+		}
+		if out.Node.TunnelProtocol == "tls_h3" && out.Node.Tls.GetQuicPadding().GetEnabled() && r.ProtocolVersion < 29 {
+			out.Node.TunnelExitEnabled = false
+			out.TunnelLinks = nil
+			out.EgressRules = nil
+		}
+		if out.Node.TunnelExitEnabled && (tunnel.UDP(out.Node.TunnelProtocol) || tunnel.Random(out.Node.TunnelProtocol) || tunnel.H3(out.Node.TunnelProtocol)) && r.ProtocolVersion < int32(tunnel.MinimumVersion(out.Node.TunnelProtocol)) {
+			out.Node.TunnelExitEnabled = false
+			out.TunnelLinks = nil
+			out.EgressRules = nil
+		}
+		if out.Node.TunnelExitEnabled && (out.Node.TunnelProtocol == "tls_tcp" || out.Node.TunnelProtocol == "plain_h2") && r.ProtocolVersion < 13 {
+			out.Node.TunnelExitEnabled = false
+			out.TunnelLinks = nil
+			out.EgressRules = nil
+		}
+		// Older agents cannot enforce target ACLs; retain probe/update control, fail forwarding closed.
+		if len(settings.TargetDenyCIDRs) > 0 && r.ProtocolVersion < 14 {
+			out.Node.Enabled = false
+			out.Node.TunnelExitEnabled = false
+			for _, rule := range out.Rules {
+				rule.Enabled = false
+			}
+			out.EgressRules = nil
+			out.TunnelLinks = nil
+		}
+		if cacheStable {
+			cacheExpiry, e = staticConfigNextExpiry(ctx, tx)
+			if e != nil {
+				return nil, e
+			}
+			var after staticConfigVersion
+			after, _, e = readStaticConfigVersion(ctx, tx)
+			if e != nil {
+				return nil, e
+			}
+			if after == cacheVersion && proto.Size(staticSnapshot(out)) <= maxStaticCacheEntryBytes {
+				// Metering below mutates rules and peers. Serialize before that
+				// mutation and keep only bounded wire bytes in the cache.
+				cacheCandidate, e = proto.Marshal(staticSnapshot(out))
+				if e != nil {
+					return nil, e
+				}
+			}
+		}
 	}
 	if e = appendMeteringControl(ctx, tx, nodeID, r.ProtocolVersion, out); e != nil {
 		return nil, e
@@ -583,6 +655,12 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 	}
 	if e = tx.Commit(ctx); e != nil {
 		return nil, e
+	}
+	if cache != nil && r.SupportsConfigDelta {
+		s.Server.staticCacheBudget.maybeCompact(s.Server.Pool, cacheVersion.count)
+	}
+	if cacheCandidate != nil {
+		cache.put(cacheVersion, cacheBuiltAt, cacheExpiry, r.ProtocolVersion, cacheCandidate)
 	}
 	return out, nil
 }
