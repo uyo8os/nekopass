@@ -88,7 +88,7 @@ sudo bash uninstall-agent.sh
 sudo bash uninstall-agent.sh --purge
 ```
 
-指定实例可加 `--service-name nekopass-agent-xxx`；`--dry-run` 显示计划，`--yes` 跳过确认，包括数据删除确认。脚本保留系统用户、依赖软件、防火墙规则以及同机面板和共享管理命令。默认节点与默认面板共用 `/opt/nekopass`：另一端仍在使用时保留其文件和更新工具；否则删除不再使用的更新工具并移除空目录。目录中其他文件不会被递归删除。卸载脚本作为新 Release 资产发布后才能从上述地址下载；也可从源码目录运行 `scripts/uninstall-agent.sh`。
+指定实例可加 `--service-name nekopass-agent-xxx`；`--dry-run` 显示计划，`--yes` 跳过确认，包括数据删除确认。`--purge` 也会删除该节点由管理工具生成的配置备份和空配置目录；目录中其他文件会保留。默认节点与默认面板共用部分目录和更新工具，另一端仍在使用时会保留。确认没有其他 Nekopass 实例时，`--purge` 会删除共享管理命令；无法确认时保留并提示。系统用户、依赖软件和防火墙规则可能被其他用途复用，脚本保留它们。卸载脚本作为新 Release 资产发布后才能从上述地址下载；也可从源码目录运行 `scripts/uninstall-agent.sh`。
 
 ## 抢占实例重建
 

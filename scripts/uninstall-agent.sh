@@ -11,13 +11,14 @@ Nekopass Agent 卸载脚本（Linux + systemd，需要 root）
   bash uninstall-agent.sh [--service-name NAME] [--purge] [--yes] [--dry-run]
 
   --service-name NAME  指定节点服务，默认为 nekopass-agent
-  --purge              同时删除该节点的配置和本地状态，无法恢复
+  --purge              同时删除该节点的配置、配置备份和本地状态，无法恢复
   --yes                不再交互确认
   --dry-run            仅显示操作，不修改文件或服务
   -h, --help           显示帮助
 
 默认保留配置（含节点 token）和状态，以便使用原连接信息重新安装。
-共享的 nekopassctl、系统用户和依赖不会被删除；面板仍在使用时保留共享更新工具。
+--purge 在确认没有其他实例后删除共享管理命令；面板仍在使用时保留共享更新工具。
+系统用户和依赖可能是安装前已有的，无法确认归属时予以保留。
 卸载不会删除面板中的节点记录，也不会撤销防火墙规则。
 HELP
 }
@@ -40,9 +41,37 @@ else
 fi
 ENV_FILE="$CONFIG_DIR/agent.env"; STATE_DIR="/var/lib/$SERVICE"
 UNIT_DIR=/etc/systemd/system
+CLI_PATH=/usr/local/bin/nekopassctl
+OPT_ROOT=$(dirname "$(dirname "$(dirname "$BIN")")")
+cleanup_shared_cli() {
+ local listed running item unit load active sub rest
+ if ! listed=$(systemctl list-unit-files --no-legend --no-pager 'nekopass*.service' 'nekopass*.path') ||
+    ! running=$(systemctl list-units --all --plain --no-legend --no-pager 'nekopass*.service' 'nekopass*.path'); then
+  printf '[nekopass] 无法确认其他服务，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ fi
+ if [[ -n "${listed//[[:space:]]/}" ]]; then
+  printf '[nekopass] 检测到其他 Nekopass 单元，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ fi
+ while read -r unit load active sub rest; do
+  [[ -n "$unit" ]] || continue
+  if [[ ( "$unit" == "$SERVICE.service" || "$unit" == "$SERVICE-update.service" || "$unit" == "$SERVICE-update.path" ) &&
+        "$load" == not-found && "$active" == inactive && "$sub" == dead ]]; then continue; fi
+  printf '[nekopass] 检测到其他 Nekopass 单元，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ done <<< "$running"
+ for item in "$UNIT_DIR"/nekopass*.service "$UNIT_DIR"/nekopass*.path \
+             "$OPT_ROOT"/nekopass*/bin/nekopass "$OPT_ROOT"/nekopass*/bin/nekopass-agent; do
+  if [[ -e "$item" || -L "$item" ]]; then
+   printf '[nekopass] 检测到其他安装文件，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+  fi
+ done
+ if [[ -L "$CLI_PATH" || "$(realpath -m -- "$CLI_PATH")" != "$CLI_PATH" ]]; then
+  printf '[nekopass] 管理命令路径包含符号链接，已保留：%s。\n' "$CLI_PATH"; return
+ fi
+ rm -f -- "$CLI_PATH"
+}
 printf '[nekopass] 将卸载节点 %s，停止其服务和更新服务并删除程序及服务文件。\n' "$SERVICE"
 if ((PURGE)); then
- printf '[nekopass] 将永久删除 %s 和 %s。\n' "$ENV_FILE" "$STATE_DIR"
+ printf '[nekopass] 将永久删除 %s、其管理工具生成的备份及 %s；配置目录为空时一并删除。\n' "$ENV_FILE" "$STATE_DIR"
 else
  printf '[nekopass] 将保留配置 %s 和状态 %s。\n' "$ENV_FILE" "$STATE_DIR"
 fi
@@ -53,7 +82,7 @@ command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || die '需要�
 for target in "$(dirname "$BIN")" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_DIR"; do
  [[ "$(realpath -m "$target")" == "$target" ]] || die "拒绝符号链接路径：$target"
 done
-for target in "$BIN" "$ENV_FILE" "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DIR/$SERVICE-update.service"; do
+for target in "$BIN" "$BIN.previous" "$ENV_FILE" "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DIR/$SERVICE-update.service"; do
  [[ ! -L "$target" ]] || die "拒绝符号链接：$target"
 done
 if ((!YES)); then
@@ -82,7 +111,7 @@ for unit in "$SERVICE-update.path" "$SERVICE.service"; do
   systemctl disable "$unit" || die "无法禁用 $unit，未删除安装文件"
  fi
 done
-rm -f -- "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DIR/$SERVICE-update.service" "$BIN"
+rm -f -- "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DIR/$SERVICE-update.service" "$BIN" "$BIN.previous"
 if [[ "$SERVICE" != nekopass-agent ]]; then
  # Suffix instances have an isolated updater; the default updater is shared with the panel.
  rm -f -- "$(dirname "$BIN")/nekopass-update"
@@ -104,6 +133,19 @@ rmdir -- "$(dirname "$BIN")" "$(dirname "$(dirname "$BIN")")" 2>/dev/null || tru
 systemctl daemon-reload
 if ((PURGE)); then
  rm -f -- "$ENV_FILE"
+ # nekopassctl creates backups using this exact timestamp and PID format.
+ # Leave unrelated files and symlinks in the shared configuration directory alone.
+ for backup in "$ENV_FILE".bak.*; do
+  name=${backup##*/}
+  if [[ "$name" =~ ^agent\.env\.bak\.[0-9]{8}-[0-9]{6}\.[0-9]+$ && -f "$backup" && ! -L "$backup" ]]; then
+   rm -f -- "$backup"
+  fi
+ done
  rm -rf -- "$STATE_DIR"
+ rmdir -- "$CONFIG_DIR" 2>/dev/null || true
+ if [[ -d "$CONFIG_DIR" ]]; then
+  printf '[nekopass] 配置目录 %s 含其他文件，已保留。\n' "$CONFIG_DIR"
+ fi
 fi
+if ((PURGE)); then cleanup_shared_cli; fi
 printf '[nekopass] 节点 %s 已卸载。\n' "$SERVICE"

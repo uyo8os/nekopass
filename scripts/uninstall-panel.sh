@@ -14,7 +14,8 @@ Nekopass 面板卸载（以 root 执行）
 
 默认保留配置、状态和数据库。--purge 要求 control.env 中的数据库地址
 仍为安装器生成的本地地址，且数据库归属同名角色。PostgreSQL 集群、角色、
-系统用户、节点、共享管理工具及防火墙规则均保留。卸载不会自动删除依赖软件。
+系统用户、其他节点和防火墙规则均保留：安装器可能复用已有账号，无法确定归属。
+卸载不会自动删除依赖软件。--purge 在确认没有其他实例后删除共享管理命令。
 更新工具在没有共用它的默认节点时删除；非空安装目录会保留。
 HELP
 }
@@ -31,6 +32,34 @@ done
 [[ "$SERVICE" == nekopass || "$SERVICE" =~ ^nekopass-panel-[a-z0-9]{1,16}$ ]] || die '服务名不正确'
 BASE="/opt/$SERVICE"; CONFIG="/etc/$SERVICE"; STATE="/var/lib/$SERVICE"
 UNIT_DIR=/etc/systemd/system
+CLI_PATH=/usr/local/bin/nekopassctl
+OPT_ROOT=$(dirname "$BASE")
+cleanup_shared_cli() {
+ local listed running item unit load active sub rest
+ if ! listed=$(systemctl list-unit-files --no-legend --no-pager 'nekopass*.service' 'nekopass*.path') ||
+    ! running=$(systemctl list-units --all --plain --no-legend --no-pager 'nekopass*.service' 'nekopass*.path'); then
+  printf '[nekopass] 无法确认其他服务，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ fi
+ if [[ -n "${listed//[[:space:]]/}" ]]; then
+  printf '[nekopass] 检测到其他 Nekopass 单元，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ fi
+ while read -r unit load active sub rest; do
+  [[ -n "$unit" ]] || continue
+  if [[ ( "$unit" == "$SERVICE.service" || "$unit" == "$SERVICE-update.service" || "$unit" == "$SERVICE-update.path" ) &&
+        "$load" == not-found && "$active" == inactive && "$sub" == dead ]]; then continue; fi
+  printf '[nekopass] 检测到其他 Nekopass 单元，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+ done <<< "$running"
+ for item in "$UNIT_DIR"/nekopass*.service "$UNIT_DIR"/nekopass*.path \
+             "$OPT_ROOT"/nekopass*/bin/nekopass "$OPT_ROOT"/nekopass*/bin/nekopass-agent; do
+  if [[ -e "$item" || -L "$item" ]]; then
+   printf '[nekopass] 检测到其他安装文件，保留共享管理命令 %s。\n' "$CLI_PATH"; return
+  fi
+ done
+ if [[ -L "$CLI_PATH" || "$(realpath -m -- "$CLI_PATH")" != "$CLI_PATH" ]]; then
+  printf '[nekopass] 管理命令路径包含符号链接，已保留：%s。\n' "$CLI_PATH"; return
+ fi
+ rm -f -- "$CLI_PATH"
+}
 printf '[nekopass] 卸载服务 %s；清除面板配置、状态及数据库：%s\n' "$SERVICE" "$([[ $PURGE == 1 ]] && printf 是 || printf 否)"
 if ((DRY_RUN)); then exit 0; fi
 [[ $(id -u) -eq 0 ]] || die '请以 root 执行'
@@ -90,12 +119,24 @@ fi
 rm -f -- "$UNIT_DIR/$SERVICE.service" "$UNIT_DIR/$SERVICE-update.service" "$UNIT_DIR/$SERVICE-update.path" "$UNIT_DIR/$SERVICE.service.d/update.conf"
 rmdir -- "$UNIT_DIR/$SERVICE.service.d" 2>/dev/null || true
 systemctl daemon-reload
-rm -f -- "$BASE/bin/nekopass"
+rm -f -- "$BASE/bin/nekopass" "$BASE/bin/nekopass.previous"
 rm -rf -- "$BASE/web"
 if ((PURGE)); then
+ rm -f -- "$BASE/bin/nekopass.next" "$BASE/bin/nekopass.update-pending"
  rm -f -- "$CONFIG/control.env" "$CONFIG/tls/server.crt" "$CONFIG/tls/server.key"
+ # nekopassctl produces these timestamped copies when editing configuration.
+ # Restrict deletion to its exact filename format, preserving unrelated files.
+ for backup in "$CONFIG"/control.env.bak.*; do
+  name=${backup##*/}
+  if [[ "$name" =~ ^control\.env\.bak\.[0-9]{8}-[0-9]{6}\.[0-9]+$ && -f "$backup" && ! -L "$backup" ]]; then
+   rm -f -- "$backup"
+  fi
+ done
  rmdir -- "$CONFIG/tls" "$CONFIG" 2>/dev/null || true
  rm -rf -- "$STATE"
+ if [[ -d "$CONFIG" ]]; then
+  printf '[nekopass] 配置目录 %s 仍包含其他文件，已保留（可能属于同机节点或用户）。\n' "$CONFIG"
+ fi
 fi
 # The default panel and agent share one updater.  Only remove it when the
 # agent binary and all its units are absent; an unknown systemd state is not
@@ -120,7 +161,8 @@ fi
 # Never recursively remove the installation directory: it can contain the
 # other component or user files. A subsequent normal uninstall can retry this.
 rmdir -- "$BASE/bin" "$BASE" 2>/dev/null || true
-printf '[nekopass] 面板已卸载。PostgreSQL、节点、共享管理工具及防火墙规则已保留。\n'
+if ((PURGE)); then cleanup_shared_cli; fi
+printf '[nekopass] 面板已卸载。PostgreSQL、其他节点及防火墙规则已保留。\n'
 if ((!remove_updater)); then
  printf '[nekopass] 检测到节点或无法确认节点状态，已保留共享更新工具。\n'
 fi

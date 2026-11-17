@@ -27,6 +27,7 @@ class AgentUninstallTest(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
         root = bash_path(self.root)
         src = (ROOT / 'scripts/uninstall-agent.sh').read_text(encoding='utf-8')
+        src = src.replace('CLI_PATH=/usr/local/bin/nekopassctl', f'CLI_PATH={root}/usr/local/bin/nekopassctl')
         for path in ['/opt/nekopass', '/opt/$SERVICE', '/etc/nekopass', '/etc/$SERVICE',
                      '/var/lib/$SERVICE', '/etc/systemd/system', '/run/systemd/system']:
             src = src.replace(path, root + path)
@@ -104,6 +105,7 @@ systemctl() {
         for file in other.values():
             self.assertTrue(file.exists(), file)
         self.assertFalse((self.root / 'opt/nekopass-agent-test').exists())
+        self.assertFalse((self.root / 'etc/nekopass-agent-test').exists())
 
     def test_purge_removes_unshared_updater_and_empty_directory(self):
         files = self.fixture()
@@ -111,8 +113,23 @@ systemctl() {
         result = self.run_script('--yes', '--purge')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / 'opt/nekopass').exists())
+        self.assertFalse((self.root / 'etc/nekopass').exists())
         for key in ('config', 'state'):
             self.assertFalse(files[key].exists(), key)
+
+    def test_purge_removes_generated_backups_and_previous_binary(self):
+        files = self.fixture()
+        backup = self.make('etc/nekopass/agent.env.bak.20261117-120000.1234')
+        previous = self.make('opt/nekopass/bin/nekopass-agent.previous')
+        panel_config = self.make('etc/nekopass/control.env')
+        other = self.make('etc/nekopass/agent.env.bak.notes')
+        result = self.run_script('--yes', '--purge')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for file in (files['config'], files['state'], backup, previous):
+            self.assertFalse(file.exists(), file)
+        self.assertTrue(panel_config.exists())
+        self.assertTrue(other.exists())
+        self.assertIn('含其他文件', result.stdout)
 
     def test_default_uninstall_removes_unshared_programs_but_keeps_data(self):
         files = self.fixture()

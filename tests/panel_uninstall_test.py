@@ -65,11 +65,16 @@ class PanelUninstallTest(unittest.TestCase):
     (root / directory).mkdir(parents=True, exist_ok=True)
    for name in ['opt/nekopass/bin/nekopass', 'opt/nekopass/bin/nekopass-agent',
                 'opt/nekopass/bin/nekopass-update', 'opt/nekopass/web/index.html',
+                'opt/nekopass/bin/nekopass.previous', 'opt/nekopass/bin/nekopass.next',
+                'opt/nekopass/bin/nekopass.update-pending',
                 'etc/nekopass/control.env', 'etc/nekopass/agent.env',
+                'etc/nekopass/control.env.bak.20261117-123456.42',
+                'etc/nekopass/control.env.bak.manual',
                 'var/lib/nekopass/panel-update-ready', 'etc/systemd/system/nekopass.service']:
     (root / name).write_text('fixture')
    posix_root = bash_path(root)
    source = SCRIPT.read_text(encoding='utf-8')
+   source = source.replace('CLI_PATH=/usr/local/bin/nekopassctl', f'CLI_PATH={posix_root}/usr/local/bin/nekopassctl')
    source = source.replace('BASE="/opt/$SERVICE"; CONFIG="/etc/$SERVICE"; STATE="/var/lib/$SERVICE"',
                            f'BASE="{posix_root}/opt/$SERVICE"; CONFIG="{posix_root}/etc/$SERVICE"; STATE="{posix_root}/var/lib/$SERVICE"')
    source = source.replace('UNIT_DIR=/etc/systemd/system', f'UNIT_DIR={posix_root}/etc/systemd/system')
@@ -109,6 +114,9 @@ python3() { command python "$1" "$(cygpath -w "$2")" "$3"; }
    result = subprocess.run([BASH, bash_path(isolated), '--yes'], env=env, capture_output=True)
    self.assertEqual(result.returncode, 0, result.stderr)
    self.assertFalse((root / 'opt/nekopass/bin/nekopass').exists())
+   self.assertFalse((root / 'opt/nekopass/bin/nekopass.previous').exists())
+   for name in ['nekopass.next', 'nekopass.update-pending']:
+    self.assertTrue((root / 'opt/nekopass/bin' / name).exists())
    self.assertFalse((root / 'opt/nekopass/web').exists())
    for name in ['opt/nekopass/bin/nekopass-agent', 'opt/nekopass/bin/nekopass-update',
                 'etc/nekopass/control.env', 'etc/nekopass/agent.env', 'var/lib/nekopass/panel-update-ready']:
@@ -143,9 +151,23 @@ python3() { command python "$1" "$(cygpath -w "$2")" "$3"; }
    self.assertIn('env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin psql -h /var/run/postgresql -p 5432 -U postgres -d postgres', db_calls)
    self.assertIn('env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin dropdb -h /var/run/postgresql -p 5432 -U postgres --maintenance-db=postgres', db_calls)
    self.assertFalse(config.exists())
+   self.assertFalse((root / 'opt/nekopass/bin/nekopass.next').exists())
+   self.assertFalse((root / 'opt/nekopass/bin/nekopass.update-pending').exists())
+   self.assertFalse((root / 'etc/nekopass/control.env.bak.20261117-123456.42').exists())
+   self.assertTrue((root / 'etc/nekopass/control.env.bak.manual').exists())
    self.assertFalse((root / 'var/lib/nekopass').exists())
    self.assertTrue((root / 'opt/nekopass/bin/nekopass-agent').exists())
    self.assertTrue((root / 'etc/nekopass/agent.env').exists())
+   self.assertIn('配置目录'.encode(), result.stdout)
+   # Once no other component or unrelated file uses the shared directory,
+   # purge removes the directory itself as well as generated backups.
+   (root / 'etc/nekopass/agent.env').unlink()
+   (root / 'etc/nekopass/control.env.bak.manual').unlink()
+   config.write_text('NEKOPASS_DATABASE_URL=postgres://nekopass@/nekopass?host=/var/run/postgresql&port=5432&sslmode=disable\n')
+   (root / 'etc/nekopass/control.env.bak.20261117-123456.43').write_text('backup')
+   result = subprocess.run([BASH, bash_path(isolated), '--purge', '--yes'], env=env, capture_output=True)
+   self.assertEqual(result.returncode, 0, result.stderr)
+   self.assertFalse((root / 'etc/nekopass').exists())
 
  def test_updater_cleanup_preserves_other_instances_and_unknown_files(self):
   for scenario in ['alone', 'binary', 'unit', 'unit-file', 'unit-link', 'unknown-state', 'user-file', 'named']:
@@ -172,6 +194,7 @@ python3() { command python "$1" "$(cygpath -w "$2")" "$3"; }
 
     posix_root = bash_path(root)
     source = SCRIPT.read_text(encoding='utf-8')
+    source = source.replace('CLI_PATH=/usr/local/bin/nekopassctl', f'CLI_PATH={posix_root}/usr/local/bin/nekopassctl')
     source = source.replace('BASE="/opt/$SERVICE"; CONFIG="/etc/$SERVICE"; STATE="/var/lib/$SERVICE"',
                             f'BASE="{posix_root}/opt/$SERVICE"; CONFIG="{posix_root}/etc/$SERVICE"; STATE="{posix_root}/var/lib/$SERVICE"')
     source = source.replace('UNIT_DIR=/etc/systemd/system', f'UNIT_DIR={posix_root}/etc/systemd/system')
