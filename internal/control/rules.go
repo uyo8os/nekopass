@@ -92,8 +92,8 @@ func (in *RuleInput) normalize() error {
 	if err := in.OriginTLS.Normalize(); err != nil {
 		return err
 	}
-	if in.SpeedMbps != 0 || in.IPLimit != 0 || in.ConnectionLimit != 0 {
-		return errors.New("规则限速、IP 和连接数限制跟随当前套餐")
+	if in.IPLimit != 0 || in.ConnectionLimit != 0 {
+		return errors.New("规则 IP 和连接数限制跟随当前套餐")
 	}
 	if in.EgressGroupID < 0 || in.EgressGroupID != 0 && in.EgressNodeID != 0 || in.EgressNodeID < 0 || in.EgressNodeID == in.NodeID {
 		return errors.New("出口节点无效")
@@ -367,7 +367,13 @@ func finishRules(ctx context.Context, tx pgx.Tx) error {
 }
 func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	var in RuleInput
-	if !decode(w, r, &in) {
+	// Older clients omit this field when editing. A pointer distinguishes omission
+	// from an explicit zero, which clears the rule-specific limit.
+	body := struct {
+		*RuleInput
+		SpeedMbps *int64 `json:"speed_mbps"`
+	}{RuleInput: &in}
+	if !decode(w, r, &body) {
 		return
 	}
 	id, validID := resourceID(w, r)
@@ -380,6 +386,15 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if body.SpeedMbps != nil {
+		in.SpeedMbps = *body.SpeedMbps
+	} else if id != 0 {
+		actor := ruleActor(r)
+		if e = tx.QueryRow(r.Context(), "SELECT speed_mbps FROM rules WHERE id=$1 AND ($2 OR user_id=$3) FOR UPDATE", id, actor.IsAdmin, actor.ID).Scan(&in.SpeedMbps); e != nil {
+			fail(w, 400, "规则不存在或无权操作")
+			return
+		}
+	}
 	id, e = putRule(r.Context(), tx, ruleActor(r), id, in)
 	if e != nil {
 		fail(w, 400, publicOperationError(e))
@@ -421,7 +436,7 @@ func (s *Server) beginRuleListTx(ctx context.Context) (pgx.Tx, error) {
 // ruleListSQL computes each rule’s eligible routes once and reuses them.
 // Its list_routes CTE must match rule_outbound_routes (migration043.sql);
 // TestRuleListRouteAndResponseEquivalent checks both route sets and responses.
-const ruleListSQL = `SELECT r.id,r.user_id,r.node_id,COALESCE(r.ingress_group_id,0) AS ingress_group_id,COALESCE(ig.name,'') AS ingress_group_name,COALESCE(ig.connection_address,'') AS ingress_connection_address,details.ingress_nodes AS ingress_nodes,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,u.rule_speed_bps/125000 AS speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
+const ruleListSQL = `SELECT r.id,r.user_id,r.node_id,COALESCE(r.ingress_group_id,0) AS ingress_group_id,COALESCE(ig.name,'') AS ingress_group_name,COALESCE(ig.connection_address,'') AS ingress_connection_address,details.ingress_nodes AS ingress_nodes,COALESCE(r.egress_node_id,0) AS egress_node_id,COALESCE(r.egress_group_id,0) AS egress_group_id,COALESCE(eg.name,'') AS egress_group_name,COALESCE(en.name,'') AS egress_node_name,COALESCE(en.tunnel_protocol,'') AS egress_tunnel_protocol,r.protocol,r.listen_host,COALESCE(ti.port,r.listen_port) AS listen_port,COALESCE(r.tls_inbound_id,0) AS tls_inbound_id,r.sni_names,r.tls_alpn,r.origin_tls,r.target_host,r.target_port,r.enabled,r.name,r.group_id,r.targets,r.balance,r.proxy_accept,r.proxy_send,r.proxy_trusted_cidrs,r.traffic_baseline,r.config_revision,COALESCE(LEAST(NULLIF(r.speed_mbps*125000,0),NULLIF(u.rule_speed_bps,0)),0)/125000 AS speed_mbps,r.speed_mbps AS configured_speed_mbps,u.rule_ip_limit AS ip_limit,u.rule_connection_limit AS connection_limit,u.username,n.name AS node_name,n.public_address,n.last_seen,n.sync_error,n.applied_revision,
  COALESCE(g.name,'') AS group_name,GREATEST(COALESCE((SELECT sum(t.traffic) FROM all_rule_usage t WHERE t.rule_id=r.id),0)::bigint-r.traffic_baseline,0) AS traffic_bytes,
  CASE WHEN NOT r.enabled THEN 'disabled' WHEN NOT u.account_enabled THEN 'user_disabled' WHEN u.plan_id IS NULL THEN 'no_plan' WHEN NOT u.plan_enabled THEN 'plan_disabled' WHEN u.expires_at<=now() THEN 'expired' WHEN r.ingress_group_id IS NOT NULL AND (NOT COALESCE(ig.enabled,false) OR NOT EXISTS(SELECT 1 FROM user_node_groups ug WHERE ug.user_id=r.user_id AND ug.group_id=r.ingress_group_id)) THEN 'unauthorized' WHEN r.ingress_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM rule_ingress_nodes ri JOIN nodes x ON x.id=ri.node_id AND x.enabled WHERE ri.rule_id=r.id) THEN 'offline' WHEN NOT n.ingress_enabled OR NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=n.id) OR (r.egress_node_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM user_nodes un WHERE un.user_id=r.user_id AND un.node_id=r.egress_node_id)) THEN 'unauthorized'
  WHEN r.egress_group_id IS NOT NULL AND NOT details.anchor_has_route THEN 'unauthorized'
