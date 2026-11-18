@@ -86,19 +86,32 @@ func (m *nodeLockManager) acquire(ctx context.Context, pool *pgxpool.Pool, nodeI
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	if m.conn == nil {
 		conn, e := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
 		if e != nil {
 			return nil, e
 		}
 		m.conn, m.pid, m.done, m.owners = conn, conn.PgConn().PID(), make(chan struct{}), make(map[int64]string)
+		if err = ctx.Err(); err != nil {
+			m.invalidateLocked()
+			return nil, err
+		}
 		go m.monitor(conn, m.done)
 	}
 	if _, exists := m.owners[nodeID]; exists {
 		return nil, errNodeAlreadyConnected
 	}
 	var locked bool
-	if err = m.conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", -nodeID).Scan(&locked); err != nil {
+	// The carrier holds locks for all nodes. Never let one canceled stream
+	// interrupt its in-flight query: pgx can close the entire connection on
+	// context cancellation. Bound the independent query to detect a real fault.
+	lockCtx, cancelLock := context.WithTimeout(context.Background(), 3*time.Second)
+	err = m.conn.QueryRow(lockCtx, "SELECT pg_try_advisory_lock($1)", -nodeID).Scan(&locked)
+	cancelLock()
+	if err != nil {
 		m.invalidateLocked()
 		return nil, err
 	}
@@ -106,12 +119,17 @@ func (m *nodeLockManager) acquire(ctx context.Context, pool *pgxpool.Pool, nodeI
 		if len(m.owners) == 0 {
 			m.invalidateLocked()
 		}
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, errNodeAlreadyConnected
 	}
 	generation := Secret()
-	if _, err = tx.Exec(ctx, `INSERT INTO node_stream_sessions(node_id,generation,lock_pid) VALUES($1,$2,$3)
+	if err = ctx.Err(); err == nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO node_stream_sessions(node_id,generation,lock_pid) VALUES($1,$2,$3)
  ON CONFLICT(node_id) DO UPDATE SET generation=EXCLUDED.generation,lock_pid=EXCLUDED.lock_pid`, nodeID, generation, m.pid); err == nil {
-		err = tx.Commit(ctx)
+			err = tx.Commit(ctx)
+		}
 	}
 	if err != nil {
 		// If the unlock cannot be confirmed, discard the entire carrier.

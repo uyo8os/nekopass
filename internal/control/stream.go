@@ -21,9 +21,18 @@ import (
 const GrantWindow int64 = 256 << 20
 const MaxControlMessageBytes = 16 << 20
 
+// Stream liveness is distinct from transport keepalive: an HTTP/2 connection
+// can remain healthy while an individual node stream is no longer making progress.
+const nodeStreamIdleTimeout = 60 * time.Second
+const nodeExchangeTimeout = 2 * time.Minute
+
 type StreamServer struct {
 	pb.UnimplementedControlServer
 	Server *Server
+	// A test can shorten the stream I/O deadline without changing other streams.
+	idleTimeout time.Duration
+	// A test can shorten the transaction deadline without changing other streams.
+	exchangeTimeout time.Duration
 }
 
 func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
@@ -58,6 +67,14 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		}
 	}()
 	lastFullToken := ""
+	idleTimeout := s.idleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = nodeStreamIdleTimeout
+	}
+	exchangeTimeout := s.exchangeTimeout
+	if exchangeTimeout <= 0 {
+		exchangeTimeout = nodeExchangeTimeout
+	}
 	for {
 		// Unblock a stream waiting for a report if the shared lock carrier dies.
 		type incoming struct {
@@ -67,12 +84,18 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		received := make(chan incoming, 1)
 		go func() { report, err := stream.Recv(); received <- incoming{report, err} }()
 		var report *pb.AgentMessage
+		timer := time.NewTimer(idleTimeout)
 		select {
 		case <-lock.done:
+			timer.Stop()
 			return status.Error(codes.Unavailable, "node stream lock lost")
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
+		case <-timer.C:
+			return status.Error(codes.DeadlineExceeded, "node report timed out")
 		case in := <-received:
+			timer.Stop()
 			report, e = in.report, in.err
 		}
 		if e != nil {
@@ -84,12 +107,20 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		if len(report.InstanceId) < 16 || len(report.InstanceId) > 128 || len(report.Usage) > 10000 || len(report.RuleUsage) > 100000 || len(report.RequestUsers) > 10000 || len(report.DiagnosticResults) > 256 || len(report.AppliedConfigToken) > 128 {
 			return status.Error(codes.InvalidArgument, "invalid report")
 		}
-		result, e := s.exchangeWithLock(exchangeCtx, s.Server.Pool, node.ID, report, Hash(presentedToken), lock, cache)
+		// Never release the node lock while an exchange can still commit: wait
+		// for the timed transaction to return before exiting this handler.
+		requestCtx, cancelRequest := context.WithTimeout(exchangeCtx, exchangeTimeout)
+		result, e := s.exchangeWithLock(requestCtx, s.Server.Pool, node.ID, report, Hash(presentedToken), lock, cache)
+		requestErr := requestCtx.Err()
+		cancelRequest()
 		if e != nil {
 			select {
 			case <-lock.done:
 				return status.Error(codes.Unavailable, "node stream lock lost")
 			default:
+			}
+			if errors.Is(requestErr, context.DeadlineExceeded) {
+				return status.Error(codes.DeadlineExceeded, "node exchange timed out")
 			}
 			return status.Error(codes.FailedPrecondition, publicOperationError(e))
 		}
@@ -116,12 +147,18 @@ func (s *StreamServer) Connect(stream pb.Control_ConnectServer) error {
 		}
 		sent := make(chan error, 1)
 		go func() { sent <- stream.Send(result) }()
+		timer = time.NewTimer(idleTimeout)
 		select {
 		case <-lock.done:
+			timer.Stop()
 			return status.Error(codes.Unavailable, "node stream lock lost")
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
+		case <-timer.C:
+			return status.Error(codes.DeadlineExceeded, "node response timed out")
 		case e = <-sent:
+			timer.Stop()
 			if e != nil {
 				return e
 			}
