@@ -44,6 +44,8 @@ wget https://github.com/uyo8os/nekopass/releases/latest/download/install-panel.s
 
 更新工具通过 systemd 监听更新请求，供面板或管理命令触发；它不会定时自动升级。
 
+PostgreSQL 服务端需要单独维护，查看版本和更新步骤见 [更新 PostgreSQL](./manage.md#更新-postgresql)。
+
 | 默认入口 | 端口 |
 | --- | --- |
 | 网页 HTTP | `8080` |
