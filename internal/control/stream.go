@@ -358,6 +358,7 @@ func (s *StreamServer) exchangeWithLock(ctx context.Context, conn interface {
 	}
 	out.Node.SecurityConfigured = true
 	out.Node.ProxyTrustedCidrs = settings.ProxyTrustedCIDRs
+	out.Node.ProxyNyanpassCompat = settings.ProxyNyanpassCompat
 	out.Node.TargetDenyCidrs = settings.TargetDenyCIDRs
 	out.Node.ReportPublicIp = r.ProtocolVersion >= 18 && settings.Telegram.Enabled && settings.Telegram.Token != "" && len(settings.Telegram.NotificationChatIDs) > 0
 	if e = tx.QueryRow(ctx, "SELECT udp_idle_timeout_seconds FROM nodes WHERE id=$1", nodeID).Scan(&out.Node.UdpIdleTimeoutSeconds); e != nil {
